@@ -22,8 +22,6 @@
 #include <time.h>
 #include <dirent.h>
 #include <sys/stat.h>
-#include <sys/param.h>
-#include <sys/mount.h>
 #include <errno.h>
 
 static void log_cb(void *ctx, const char *msg)
@@ -187,7 +185,7 @@ static int ends_with(const char *s, const char *suf)
 /* ===================================================== stock library == */
 /*
  * Stocks are plain files, so the library is just a directory. The camera
- * does the same thing with ML/FILM on the card -- there is no registry
+ * does the same thing with CHDK/FILM on the card -- there is no registry
  * and nothing to rebuild when you add one.
  */
 
@@ -322,9 +320,9 @@ static int prepare_card(const char *root)
 
     if (!n) { fprintf(stderr, "filmdev: no stocks to copy\n"); return 1; }
 
-    snprintf(path, sizeof path, "%s/ML", root);
+    snprintf(path, sizeof path, "%s/CHDK", root);
     mkdir(path, 0755);
-    snprintf(path, sizeof path, "%s/ML/FILM", root);
+    snprintf(path, sizeof path, "%s/CHDK/FILM", root);
     if (mkdir(path, 0755) != 0 && errno != EEXIST) {
         fprintf(stderr, "filmdev: cannot create %s\n", path);
         return 1;
@@ -332,7 +330,7 @@ static int prepare_card(const char *root)
 
     for (i = 0; i < n; i++) {
         const char *slash = strrchr(g_stock_path[i], '/');
-        snprintf(path, sizeof path, "%s/ML/FILM/%s", root,
+        snprintf(path, sizeof path, "%s/CHDK/FILM/%s", root,
                  slash ? slash + 1 : g_stock_path[i]);
         if (copy_file(g_stock_path[i], path) != 0) {
             fprintf(stderr, "filmdev: cannot write %s\n", path);
@@ -340,15 +338,9 @@ static int prepare_card(const char *root)
         }
         printf("  %s\n", path);
     }
-    /*
-     * The index the camera reads instead of enumerating the directory.
-     * FIO_FindFirstEx is the one call in the payload whose contract is
-     * guessed rather than known -- cookie type, failure value and dirent
-     * shape all come from a newer Magic Lantern tree than the binary it runs
-     * inside -- and the camera's log showed the payload dying there. Naming
-     * the files here costs nothing and removes that call from the path.
-     */
-    snprintf(path, sizeof path, "%s/ML/FILM/INDEX.TXT", root);
+    /* The module loads what INDEX.TXT names, in that order, rather than
+     * walking the directory: the list on screen is then the list here. */
+    snprintf(path, sizeof path, "%s/CHDK/FILM/INDEX.TXT", root);
     {
         FILE *ix = fopen(path, "wb");
         if (!ix) { fprintf(stderr, "filmdev: cannot write %s\n", path); return 1; }
@@ -360,24 +352,8 @@ static int prepare_card(const char *root)
         printf("  %s\n", path);
     }
 
-    /*
-     * The engine itself travels as ML/SE.BIN, loaded on demand by the stub
-     * patched into AUTOEXEC.BIN. Copying it here means card preparation is
-     * one command and cannot leave the two halves out of step -- a stale
-     * SE.BIN against a newer AUTOEXEC.BIN is exactly the kind of mismatch
-     * that is miserable to diagnose on the camera.
-     */
-    snprintf(path, sizeof path, "%s/ML/SE.BIN", root);
-    if (copy_file("ml/build/SE.BIN", path) == 0) {
-        printf("  %s\n", path);
-    } else {
-        fprintf(stderr,
-                "filmdev: could not copy ml/build/SE.BIN -- run 'make payload' "
-                "first, or copy it to ML/SE.BIN by hand\n");
-    }
-
-    printf("\n%d stocks copied. The camera lists whatever it finds in ML/FILM.\n", n);
-    printf("Remember AUTOEXEC.BIN: cp ml/build/AUTOEXEC.BIN %s/\n", root);
+    printf("\n%d stocks copied. The module lists what INDEX.TXT names.\n", n);
+    printf("The module itself goes in CHDK/MODULES/SOUP.FLT: see chdk/README.md.\n");
     return 0;
 }
 
@@ -953,174 +929,6 @@ static int batch_develop(char **files, int nfiles, const char *stock_name,
 
 
 
-/* ============================================================ checkfir */
-/*
- * Validate a Canon firmware file before it goes anywhere near the camera.
- *
- * Flashing is the one operation in this whole project that can genuinely
- * brick the body, and Canon no longer hosts the EOS 5D firmware, so the
- * file has to come from somewhere else. These are the checks that make any
- * source safe to use.
- *
- * The expected size is not a guess: Canon's own Windows installer carries
- * a manifest declaring 5d000111.fir as exactly 5,202,980 bytes. The header
- * layout is taken from the two known-good 5Dc .fir files in vendor/.
- */
-#define FIR_5DC_111_SIZE 5202980
-
-static int check_fir(const char *path)
-{
-    size_t len;
-    uint8_t *d = read_file(path, &len);
-    char ver[17];
-    int  i, problems = 0;
-
-    if (!d) { fprintf(stderr, "filmdev: cannot read %s\n", path); return 1; }
-
-    printf("%s\n", path);
-    printf("  size            : %zu bytes\n", len);
-
-    if (len < 0x20) {
-        printf("  VERDICT         : far too small to be a firmware file\n");
-        free(d);
-        return 1;
-    }
-
-    /* magic */
-    if (d[0] == 0x13 && d[1] == 0x02 && d[2] == 0x00 && d[3] == 0x80) {
-        printf("  header magic    : 13 02 00 80  (matches the EOS 5D)\n");
-    } else {
-        printf("  header magic    : %02x %02x %02x %02x  <- NOT an EOS 5D firmware header\n",
-               d[0], d[1], d[2], d[3]);
-        problems++;
-    }
-
-    /* version string, NUL padded to 16 bytes at offset 0x10 */
-    for (i = 0; i < 16; i++) ver[i] = (char)(d[0x10 + i] ? d[0x10 + i] : 0);
-    ver[16] = 0;
-    printf("  version string  : \"%s\"\n", ver[0] ? ver : "(empty)");
-    if (strcmp(ver, "1.1.1") != 0) {
-        printf("                    <- expected \"1.1.1\"; Magic Lantern for the\n"
-               "                       5D Classic supports no other version\n");
-        problems++;
-    }
-
-    /* size against Canon's own manifest */
-    if (len == FIR_5DC_111_SIZE) {
-        printf("  size check      : exactly matches Canon's manifest for 5d000111.fir\n");
-    } else {
-        long diff = (long)len - (long)FIR_5DC_111_SIZE;
-        printf("  size check      : %+ld bytes vs Canon's manifest (%d)\n",
-               diff, FIR_5DC_111_SIZE);
-        if (len > 100000) {
-            printf("                    <- wrong size for the 1.1.1 update\n");
-            problems++;
-        } else {
-            printf("                    <- this is small enough to be a Magic Lantern\n"
-                   "                       installer .fir, not the Canon update\n");
-            problems++;
-        }
-    }
-
-    printf("\n");
-    if (problems == 0) {
-        printf("  VERDICT         : looks like the genuine EOS 5D 1.1.1 update.\n");
-        printf("                    Copy it to the ROOT of a freshly formatted CF\n");
-        printf("                    card, then update from the camera's menu.\n");
-    } else {
-        printf("  VERDICT         : %d problem%s found. DO NOT FLASH THIS FILE.\n",
-               problems, problems == 1 ? "" : "s");
-    }
-    free(d);
-    return problems ? 1 : 0;
-}
-
-
-/* =========================================================== checkcard */
-/*
- * Diagnose "no update found" when a .fir is sitting on the card.
- *
- * The big one on this body is a catch-22: firmware 1.1.1 is the update
- * that ADDS high-capacity CF support. On 1.0.1 the camera wants a small
- * FAT16 card, so a modern card may not be readable -- you need the update
- * to read the card that holds the update.
- */
-static int check_card(const char *root)
-{
-    DIR *d = opendir(root);
-    struct dirent *e;
-    struct statfs sfs;
-    int  nfir = 0, nmeta = 0, problems = 0;
-    char path[1024];
-
-    if (!d) { fprintf(stderr, "filmdev: cannot open %s\n", root); return 1; }
-
-    printf("%s\n\n", root);
-
-    if (statfs(root, &sfs) == 0) {
-        double gb = (double)sfs.f_blocks * (double)sfs.f_bsize / 1073741824.0;
-        printf("  filesystem      : %s\n", sfs.f_fstypename);
-        printf("  card size       : %.2f GB\n", gb);
-        if (gb > 2.0) {
-            printf("                    <- LARGER THAN 2 GB.\n"
-                   "                       Firmware 1.1.1 is the update that ADDS\n"
-                   "                       high-capacity CF support, so on 1.0.1 the\n"
-                   "                       camera may not read this card at all.\n"
-                   "                       Use a 2 GB or smaller card for the update.\n");
-            problems++;
-        }
-        if (strstr(sfs.f_fstypename, "msdos") == NULL &&
-            strstr(sfs.f_fstypename, "exfat") == NULL) {
-            printf("                    <- not a FAT filesystem; the camera cannot read it\n");
-            problems++;
-        } else if (strstr(sfs.f_fstypename, "exfat") != NULL) {
-            printf("                    <- exFAT. This camera needs FAT16/FAT32.\n");
-            problems++;
-        }
-    }
-    printf("\n");
-
-    while ((e = readdir(d)) != NULL) {
-        size_t n = strlen(e->d_name);
-        int is_fir = (n > 4 &&
-                      (strcasecmp(e->d_name + n - 4, ".fir") == 0));
-        if (e->d_name[0] == '.') {
-            if (strcmp(e->d_name, ".") && strcmp(e->d_name, "..")) nmeta++;
-            /* a macOS resource fork shadowing a real .fir */
-            if (n > 2 && e->d_name[0] == '.' && e->d_name[1] == '_') continue;
-            continue;
-        }
-        if (is_fir) {
-            nfir++;
-            printf("  found           : %s\n", e->d_name);
-            if (strcmp(e->d_name, "5d000111.fir") != 0)
-                printf("                    <- the camera expects 5d000111.fir;\n"
-                       "                       rename it to be safe\n");
-            snprintf(path, sizeof path, "%s/%s", root, e->d_name);
-            printf("\n");
-            if (check_fir(path) != 0) problems++;
-            printf("\n");
-        }
-    }
-    closedir(d);
-
-    if (!nfir) {
-        printf("  found           : NO .fir FILE IN THE ROOT OF THIS CARD\n");
-        printf("                    It must be at the top level, not in a folder.\n");
-        problems++;
-    }
-    if (nmeta) {
-        printf("  macOS metadata  : %d hidden entr%s (.DS_Store, ._ forks, "
-               ".Spotlight-V100)\n", nmeta, nmeta == 1 ? "y" : "ies");
-        printf("                    Usually harmless, but clean them off and\n"
-               "                    format the card IN THE CAMERA to be sure.\n");
-    }
-
-    printf("\n  %s\n", problems ? "Fix the items marked above." :
-           "Card looks ready. Update from the camera's last menu tab.");
-    return problems ? 1 : 0;
-}
-
 /* ============================================================ stress == */
 /*
  * The CR2 reader is the most complex parser here and the one most likely
@@ -1530,7 +1338,7 @@ static int test_ui_coverage(void)
     memset(mem, 0x5A, sizeof mem);
     fb.px = mem + GUARD;
 
-    /* zero stocks must render too: a card with no ML/FILM directory */
+    /* zero stocks must render too: a card with no stock directory */
     for (scr = 0; scr < SE_SCREEN_COUNT; scr++) {
         se_ui_init(&u);
         u.screen = (se_ui_screen)scr;
@@ -2292,14 +2100,12 @@ static void usage(void)
         "  raw               decode the sensor data and write a 16-bit PGM\n"
         "  develop           one frame: raw -> stock -> demosaic -> JPEG\n"
         "  stocks            list the film stocks in the stock directory\n"
-        "  card <path>       copy the stocks onto a card as ML/FILM\n"
+        "  card <path>       copy the stocks onto a card as CHDK/FILM\n"
         "  contact <f.CR2> [out.jpg] [--from-raw] [--cols N]  one frame through every stock\n"
 "  looks <f.CR2> [outdir] [--from-raw]     one full-size JPEG per stock\n"
         "  batch <files...> --stock <name> [-o <dir>]  develop many frames\n"
         "  selftest          run the engine's internal consistency checks\n"
         "  stress <f.CR2> [n]  throw n damaged copies of a raw file at the decoder\n"
-        "  checkfir <f.fir>  verify a Canon firmware file before flashing it\n"
-        "  checkcard <path>  diagnose a card the camera says has no update on it\n"
         "  ui [dir]          dump every camera screen as a raw overlay buffer\n"
         "  mkstock <x.xmp> <out.fs>   extract a film stock from a Lightroom edit\n"
         "\n"
@@ -2339,14 +2145,6 @@ int main(int argc, char **argv)
 
     if (strcmp(cmd, "ui") == 0)       { return dump_ui(argc > 2 ? argv[2] : "out"); }
     if (strcmp(cmd, "stocks") == 0)   return list_stocks();
-    if (strcmp(cmd, "checkcard") == 0) {
-        if (argc < 3) { usage(); return 2; }
-        return check_card(argv[2]);
-    }
-    if (strcmp(cmd, "checkfir") == 0) {
-        if (argc < 3) { usage(); return 2; }
-        return check_fir(argv[2]);
-    }
     if (strcmp(cmd, "stress") == 0) {
         if (argc < 3) { usage(); return 2; }
         se_set_log(log_cb, NULL);

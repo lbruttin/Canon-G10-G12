@@ -1,13 +1,10 @@
 # Soup Engine
 
-# Raw files to test against. They live in samples/fromJpeg and
-# samples/fromRaw now, grouped by which develop path suits them, so this
-# looks in both and keeps the old flat layout working. When the samples
-# moved, this matched nothing and simtest failed with "no preview",
-# which says nothing about a missing sample.
+# Raw files for the desktop tool's sample-driven checks, flat or one folder
+# deep under samples/.
 SAMPLES := $(wildcard samples/*.CR2) $(wildcard samples/*/*.CR2)
 
-.PHONY: all test test-full test-camera simtest chdktest asan arm clean contact payload
+.PHONY: all test test-full chdktest asan arm clean contact
 
 all:
 	@$(MAKE) -s -C host
@@ -32,79 +29,18 @@ test-full: all
 	@echo "--- restoring the release build ---"
 	@$(MAKE) -s -C host clean && $(MAKE) -s -C host
 
-# The camera-only code: the raw spool and the payload's libc. Needs a sample
-# to compare against, and checks every scale -- only scale 1 seeks backwards.
 SDK := $(shell for s in MacOSX26.5.sdk MacOSX26.sdk MacOSX15.sdk; do \
                  p=/Library/Developer/CommandLineTools/SDKs/$$s; \
                  if [ -d $$p ]; then echo -isysroot $$p; break; fi; done)
-CAMTEST_CC = cc -std=c99 -O2 -DSE_HOSTED $(SDK) -Iengine -Iml/payload
 
-test-camera:
-	@mkdir -p out
-	@$(CAMTEST_CC) -c -o out/payload_libc.o ml/payload/libc.c \
-	   -Dvsnprintf=se_vsnprintf -Dmemcpy=se_x_memcpy -Dmemset=se_x_memset \
-	   -Dstrlen=se_x_strlen -Dstrcmp=se_x_strcmp -Dstrncmp=se_x_strncmp
-	@$(CAMTEST_CC) -o out/camtest tools/camtest.c out/payload_libc.o \
-	   engine/se.c engine/wb.c engine/cr2.c engine/color.c engine/debayer.c engine/lut.c \
-	   engine/stock.c engine/grade.c engine/jpeg_enc.c engine/pipeline.c -lm
-	@for f in $(SAMPLES); do for s in 1 2 4; do \
-	   echo "--- `basename $$f` scale=$$s"; \
-	   ./out/camtest $$f $$s | grep -E 'vsnprintf|RESULT|STREAM|stream:' || exit 1; \
-	 done; done
-
-# Run the real ml/payload/film.c on the desktop, against a mock Canon API
-# that returns short reads, caps the heap at 7 MB and gives the worker a real
-# 48 KB stack. Builds a simulated card from the first sample raw.
-SIMCARD = out/simcard
-
-simtest: all
-	@mkdir -p out
-	@# Delete it first. This line used to be `cc ... | grep ...; test -x
-	@# out/camsim`, which takes grep's exit status and then happily finds
-	@# the *previous* binary -- so a failed compile ran the last good build
-	@# and the run was reported as a pass. That is the trap documented in
-	@# docs/HANDOFF.md section 6, still live in a second form. Now nothing
-	@# can be run unless this compile produced it.
-	@rm -f out/camsim
-	@cc -std=c99 -O1 -g -DSE_HOSTED $(SDK) -Itools/camsim -Iengine -o out/camsim \
-	   tools/camsim/camsim.c ml/payload/film.c \
-	   engine/se.c engine/wb.c engine/cr2.c engine/color.c engine/debayer.c engine/lut.c \
-	   engine/stock.c engine/grade.c engine/jpeg_enc.c engine/jpeg_dec.c \
-	   engine/pipeline.c engine/look.c engine/ui.c engine/ui_font.c \
-	   -lm -lpthread 2> out/camsim.cc.log \
-	   || { grep -v 'reducing alignment' out/camsim.cc.log; \
-	        echo "camsim did not compile"; exit 1; }
-	@grep -v 'reducing alignment' out/camsim.cc.log || true
-	@test -x out/camsim
-	@$(MAKE) -s out/previewcheck
-	@$(CAMTEST_CC) -o out/hashcheck tools/hashcheck.c engine/se.c \
-	   engine/wb.c engine/cr2.c engine/lut.c engine/stock.c engine/grade.c -lm
-	@echo "expected, computed on the desktop:"
-	@./out/previewcheck $(firstword $(SAMPLES)) stocks/soup800.fs 2 /dev/null
-	@sh tools/simtest.sh $(firstword $(SAMPLES)) \
-	   "`./out/previewcheck $(firstword $(SAMPLES)) stocks/soup800.fs 2 /dev/null | grep 'look hash' | sed 's/look hash //'`"
-
-# previewcheck is the preview path on the desktop, and simtest's
-# reference: the camera's output is compared against it byte for byte.
+# The camera's code on the desktop: the module's vsnprintf against the
+# system's, then chdk/soup_dev.c developing real G10/G12 JPEGs with short
+# reads and a 1 MB heap, each compared byte for byte against an in-RAM
+# develop. Put camera JPEGs in samples/powershot/.
 #
-# It used to be built only as a recipe line inside simtest, so `make all`
-# and `make test` left it alone and it went quietly stale. Rendering a
-# stock through a binary four minutes older than engine/look.c showed no
-# change from an engine edit that had definitely taken effect, which is a
-# very convincing way to conclude the edit did nothing.
-PREVIEW_SRC = tools/previewcheck.c engine/se.c engine/wb.c engine/cr2.c \
-	      engine/lut.c engine/stock.c engine/grade.c engine/jpeg_enc.c \
-	      engine/jpeg_dec.c engine/look.c
-
-out/previewcheck: $(PREVIEW_SRC) $(wildcard engine/*.h)
-	@mkdir -p out
-	@$(CAMTEST_CC) -o $@ $(PREVIEW_SRC) -lm
-
-# The PowerShot develop (chdk/soup_dev.c), on the desktop: short reads, a
-# 1 MB heap, and every frame compared byte for byte against an in-RAM
-# develop. Camera JPEGs from a G10 or G12 go in samples/powershot/.
 # -iquote, not -I: chdk/ also holds the CHDK build's stdint.h, which must
-# not stand in for the system's here.
+# not stand in for the system's here. The module's vsnprintf is renamed so
+# the test can hold it up against the real one.
 PS_SAMPLES := $(wildcard samples/powershot/*.JPG)
 CHDKTEST_SRC = tools/chdktest.c chdk/soup_dev.c engine/se.c engine/wb.c \
 	       engine/lut.c engine/stock.c engine/grade.c engine/jpeg_enc.c \
@@ -112,9 +48,12 @@ CHDKTEST_SRC = tools/chdktest.c chdk/soup_dev.c engine/se.c engine/wb.c \
 
 chdktest:
 	@mkdir -p out
+	@cc -std=c99 -O2 -DSE_HOSTED $(SDK) -Dvsnprintf=se_vsnprintf \
+	   -c -o out/se_vsnprintf.o chdk/vsnprintf.c
 	@cc -std=c99 -O2 -g -Wall -Wextra -Wno-unused-parameter \
 	   -Wno-missing-field-initializers -DSE_HOSTED $(SDK) -Iengine -iquote chdk \
-	   -o out/chdktest $(CHDKTEST_SRC) -lm
+	   -o out/chdktest $(CHDKTEST_SRC) out/se_vsnprintf.o -lm
+	@./out/chdktest
 	@test -n "$(PS_SAMPLES)" || { echo "no camera JPEGs in samples/powershot/"; exit 1; }
 	@for f in $(PS_SAMPLES); do for s in 1 2; do for st in velvia acros portra; do \
 	   echo "--- `basename $$f` $$st 1/$$s"; \
@@ -122,17 +61,11 @@ chdktest:
 	     | grep -E 'develop:|PASS|FAIL' || exit 1; \
 	 done; done; done
 
-# The camera build. Produces two files for the card:
-#   ml/build/AUTOEXEC.BIN  the 2012 binary with 262 bytes changed, same size
-#   ml/build/SE.BIN        the soup engine itself, loaded on demand
-payload:
-	@$(MAKE) -s -C ml/payload
-	@python3 tools/patch-film.py
-
 asan:
 	@$(MAKE) -s -C host asan
 
-# Confirm the engine still builds freestanding for the camera's core.
+# Confirm the engine still builds freestanding for the camera's core:
+# ARM946E-S, in DIGIC 4 as in the DIGIC II it was first written for.
 arm:
 	@mkdir -p out/arm
 	@for f in engine/*.c; do \
@@ -147,4 +80,4 @@ contact: all
 
 clean:
 	@$(MAKE) -s -C host clean
-	@rm -rf out/arm
+	@rm -rf out

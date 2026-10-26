@@ -1,9 +1,10 @@
 /*
  * soup.c - Soup Engine as a CHDK module, for the PowerShot G10 and G12.
  *
- * The 5D build lives inside Magic Lantern. PowerShots have no Magic
- * Lantern; they have CHDK, which loads modules (.flt files) from the card
- * and lists the ones marked MTYPE_TOOL under its Tools menu. This is one.
+ * Soup Engine began on the EOS 5D Classic, inside Magic Lantern.
+ * PowerShots have no Magic Lantern; they have CHDK, which loads modules
+ * (.flt files) from the card and lists the ones marked MTYPE_TOOL under its
+ * Tools menu. This is one.
  *
  * What it does is the 5D's JPEG path: pick a stock, and each photo gets a
  * second JPEG with the look on it, written to A/FILM/<folder>/ and never
@@ -118,7 +119,7 @@ static volatile int auto_on;
 static volatile int busy;               /* a frame is developing            */
 static char         status[48];
 static char         current[16];        /* the frame being developed        */
-static int          need_redraw;
+static volatile int need_redraw;
 
 /* ===================================================================== */
 /* Settings                                                               */
@@ -236,10 +237,11 @@ static int settled(const char *path)
 
 static int develop(const char *dir, const char *name)
 {
-    char   in[64], out[64];
+    const se_stock *st = &stocks[sel];  /* the picker may move on meanwhile */
+    char    in[64], out[64];
     sd_opts o;
-    se_err rc;
-    int    t0 = get_tick_count();
+    se_err  rc;
+    int     t0 = get_tick_count();
 
     sprintf(in, "%s/%s", dir, name);
     out_path(dir, name, out);
@@ -250,11 +252,11 @@ static int develop(const char *dir, const char *name)
     busy = 1;
     o.scale   = scale;
     o.quality = SOUP_QUALITY;
-    rc = sd_develop(in, SOUP_TMP, out, &stocks[sel], &o);
+    rc = sd_develop(in, SOUP_TMP, out, st, &o);
     busy = 0;
 
     if (rc == SE_OK) {
-        se_log("%s -> %s, %s, %d s", in, out, stocks[sel].name,
+        se_log("%s -> %s, %s, %d s", in, out, st->name,
                (get_tick_count() - t0) / 1000);
         sprintf(status, "%s done", name);
     } else {
@@ -267,10 +269,13 @@ static int develop(const char *dir, const char *name)
     return rc == SE_OK ? 0 : -1;
 }
 
+/* How long AUTO keeps looking for the file behind a new exposure. */
+#define SOUP_AUTO_WAIT_MS 30000
+
 static void soup_task(void)
 {
     char dir[32], name[16], out[64];
-    long shots = 0;
+    long shots = 0, waiting = 0;
     int  armed = 0, newest = 0, n;
 
     if (!nstocks) {
@@ -305,19 +310,32 @@ static void soup_task(void)
              * Only what is shot from here on. The exposure counter moves
              * with every frame, so the folder is walked when it does, and
              * never while the camera is busy taking the next one.
+             *
+             * The counter moves before Canon has written the file, so a
+             * walk that finds nothing is not the end of it: the change
+             * stays pending until a new JPEG turns up or SOUP_AUTO_WAIT_MS
+             * has gone by, which only a RAW-only frame should ever reach.
              */
+            long now = get_exposure_counter();
+
             if (!armed) {
-                shots  = get_exposure_counter();
+                shots  = now;
                 newest = find_jpeg(dir, -1, name);
                 if (newest < 0) newest = 0;
                 armed  = 1;
             }
-            else if (get_exposure_counter() != shots && !shooting_in_progress()) {
+            else if (now != shots && !shooting_in_progress()) {
+                int found = 0;
+                if (!waiting) waiting = get_tick_count();
                 while ((n = find_jpeg(dir, newest, name)) >= 0 && auto_on && !task_quit) {
                     develop(dir, name);
                     newest = n;
+                    found  = 1;
                 }
-                shots = get_exposure_counter();
+                if (found || get_tick_count() - waiting > SOUP_AUTO_WAIT_MS) {
+                    shots   = now;
+                    waiting = 0;
+                }
             }
         }
         else {
@@ -431,6 +449,9 @@ ATTENTION: DO NOT REMOVE OR CHANGE SIGNATURES IN THIS SECTION
 int _run()
 {
     running = 1;
+    /* Closed and reopened before the task saw task_quit: let it finish,
+     * or the picker would be talking to a task that is on its way out. */
+    while (task_running && task_quit) msleep(10);
     if (!task_running) {
         se_set_log(soup_log, 0);
         cfg_load();

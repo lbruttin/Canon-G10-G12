@@ -13,13 +13,19 @@
  *
  * The frame is then developed a second time with nothing streamed -- the
  * whole file in RAM, the decoder reading the camera's own header -- and
- * the two JPEGs' image data must be byte-identical. That is what proves the rebuilt
- * header and the offset mapping in soup_dev.c hand the decoder exactly the
- * bytes it would have read from the original file.
+ * the image data of the two JPEGs must be byte-identical. That is what
+ * proves the rebuilt header and the offset mapping in soup_dev.c hand the
+ * decoder exactly the bytes it would have read from the original file.
  *
- * usage: chdktest <camera.JPG> <stockdir> <stock> <out.jpg> [scale] [heap KB]
+ * With no arguments it checks the module's vsnprintf instead (chdk/
+ * vsnprintf.c, built as se_vsnprintf) against the system's, for every
+ * format the engine and the module use.
+ *
+ * usage: chdktest
+ *        chdktest <camera.JPG> <stockdir> <stock> <out.jpg> [scale] [heap KB]
  */
 #include <stdio.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -185,6 +191,36 @@ static void exif_str(const uint8_t *j, long n, const char *prefix, char *dst, si
         if (memcmp(j + i, prefix, k) == 0) { snprintf(dst, cap, "%s", (const char *)j + i); return; }
 }
 
+/* ---- vsnprintf --------------------------------------------------------- */
+int se_vsnprintf(char *buf, size_t n, const char *fmt, va_list ap);
+
+static int bad, cases;
+
+static void check(const char *fmt, ...)
+{
+    char    mine[128], ref[128];
+    va_list a;
+
+    va_start(a, fmt); se_vsnprintf(mine, sizeof mine, fmt, a); va_end(a);
+    va_start(a, fmt); vsnprintf(ref, sizeof ref, fmt, a);      va_end(a);
+    cases++;
+    if (strcmp(mine, ref)) { bad++; printf("  MISMATCH '%s': mine=%s ref=%s\n", fmt, mine, ref); }
+}
+
+static int vsnprintf_check(void)
+{
+    check("%d", 0); check("%d", -1); check("%d", 2147483647); check("%d", (int)(-2147483647 - 1));
+    check("%u", 4294967295u); check("%x", 0xdeadbeef); check("%X", 0xdeadbeef);
+    check("%5d|", 42); check("%-5d|", 42); check("%05d|", 42); check("%05d|", -42); check("%-05d|", 42);
+    check("%s|", "hi"); check("%8s|", "hi"); check("%-8s|", "hi"); check("%c|", 'Z');
+    check("%d%%", 99); check("%18s%s", "Film stock", "Velvia"); check("%-18s%s", "Film stock", "Velvia");
+    check("%s -> %s, %s, %d s", "A/DCIM/100CANON/IMG_0001.JPG", "A/FILM/100CANON/IMG_0001.JPG", "VELVIA", 61);
+    check("%s: %s (largest free block %d KB)", "IMG_0001.JPG", "out of arena memory", 812);
+    check("develop: %u KB would not fit", 1234u); check("%08x", 0x1234);
+    printf("vsnprintf: %d cases, %d mismatches\n", cases, bad);
+    return bad ? 1 : 0;
+}
+
 int main(int argc, char **argv)
 {
     static se_stock stocks[SD_MAX_STOCKS];
@@ -197,8 +233,10 @@ int main(int argc, char **argv)
     clock_t  t0;
     se_err   rc;
 
+    if (argc == 1) return vsnprintf_check();
     if (argc < 5) {
-        fprintf(stderr, "usage: chdktest <camera.JPG> <stockdir> <stock> <out.jpg> [scale] [heap KB]\n");
+        fprintf(stderr, "usage: chdktest\n"
+                        "       chdktest <camera.JPG> <stockdir> <stock> <out.jpg> [scale] [heap KB]\n");
         return 2;
     }
     if (argc > 5) o.scale = atoi(argv[5]);

@@ -1,0 +1,8 @@
+# build output
+*.o
+*.d
+src/out/
+src/filmdev
+
+# test photos stay local
+src/samples/

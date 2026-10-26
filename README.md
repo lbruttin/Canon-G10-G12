@@ -1,59 +1,51 @@
 <div align="center">
 
-# 🎞️ Soup Engine <sub><sup>beta</sup></sub>
+# 🎞️ Soup Engine for PowerShot <sub><sup>experimental</sup></sub>
 
-### Film looks, in the camera, on a Canon EOS 5D Classic.
-
-<br>
-
-<img src="doc/camera.gif" alt="scrolling the film stocks on the camera" width="620">
+### Film looks, in the camera, on a Canon PowerShot G10 or G12.
 
 <br>
-<br>
 
-`beta` &nbsp;·&nbsp; `GPL v2` &nbsp;·&nbsp; `13 film stocks` &nbsp;·&nbsp; `EOS 5D Classic`
+`experimental` &nbsp;·&nbsp; `GPL v2` &nbsp;·&nbsp; `13 film stocks` &nbsp;·&nbsp; `CHDK module`
 
 </div>
 
 <br>
 
-Press the **trash button** and a list of film stocks fills the back
-screen. Turn the wheel to pick one, press `SET`. Every photo you take
-after that gets a second JPEG saved beside the raw, with the look
-already on it.
+Open **Soup Engine** from CHDK's Tools menu and a list of film stocks
+fills the screen. Pick one, and every photo gets a second JPEG with the
+look already on it.
 
 ```
-IMG_1234.CR2        your raw file, untouched
-IMG_1234.FLM.JPG    the same photo with the look on it
+A/DCIM/100CANON/IMG_1234.JPG     your photo, untouched
+A/FILM/100CANON/IMG_1234.JPG     the same photo with the look on it
 ```
 
-Your raw files are never modified. Delete the JPEG and the photo is
-exactly as the camera shot it.
+Your photos are never modified. Delete `A/FILM` and the card is exactly as
+the camera left it.
 
 <br>
 
 ![all thirteen film looks on one frame](doc/stocks.jpg)
 
 <div align="center"><sub>
-All thirteen, one frame, straight off the card.
+All thirteen looks on one frame.
 </sub></div>
 
 <br>
 
-> ⚠️ **Beta.** Unofficial code on a twenty year old camera. It's easy to
-> remove, and it never modifies your raw files.
+> ⚠️ **Experimental: not yet run on a camera.** The module builds, and
+> its develop is tested on the desktop against real G10 frames. Nobody
+> has run it on a G10 or G12 yet. Try it on a card you don't mind
+> reformatting, and please open an issue with what happens.
 
 > ⚖️ **No warranty.** Like all GPL software this comes with none. You
 > install it at your own risk. See sections 11 and 12 of the
 > [licence](LICENSE).
 
-> 🎨 **The looks are still being tweaked** and will keep changing. The
-> names are shorthand for the films they're based on, not exact copies.
-> All trademarks belong to their owners.
-
-> 📷 **Canon EOS 50D.** A community port by
-> [@rebelt2i](https://github.com/rebelt2i) lives on its own branch,
-> [`50d`](https://github.com/jiijii0/soup-engine/tree/50d).
+> 🎨 **The looks are still being tweaked.** The names are shorthand for
+> the films they're based on, not exact copies. All trademarks belong to
+> their owners.
 
 <br>
 
@@ -63,51 +55,36 @@ All thirteen, one frame, straight off the card.
 
 ## 📦 Installing
 
-You need a **Canon EOS 5D Classic** (the original 2005 one, firmware
-1.1.1) and a CompactFlash card. It will not work on any other Canon:
-the camera-side code is built for this body's firmware.
+You need a **Canon PowerShot G10 or G12** and an SD card.
 
 <br>
 
-### 1️⃣ &nbsp; Install Magic Lantern
+### 1️⃣ &nbsp; Install CHDK
 
-> ### 👉 [builds.magiclantern.fm/5DC.html](https://builds.magiclantern.fm/5DC.html)
+> ### 👉 [chdk.fandom.com/wiki/CHDK](https://chdk.fandom.com/wiki/CHDK)
 
-Follow their instructions, then check the camera starts and their menu
-opens before going further. Soup Engine never touches your camera's
-boot flag; their installer does that.
-
-<br>
-
-### 2️⃣ &nbsp; Back up their `autoexec.bin`
-
-Copy it off the card somewhere safe. Putting it back is how you
-uninstall.
+CHDK is the open-source add-on firmware for PowerShots. It runs from the
+card and leaves the camera's own firmware alone. Follow their guide for
+your model and firmware version, then check that CHDK starts and its menu
+opens before going further.
 
 <br>
 
-### 3️⃣ &nbsp; Copy the files to the root of your card
+### 2️⃣ &nbsp; Add Soup Engine to the card
 
-> ### 📦 [Download the latest release](https://github.com/jiijii0/soup-engine/releases/latest)
+| on the card | what it is | where it comes from |
+|:--|:--|:--|
+| ⚙️ `CHDK/MODULES/SOUP.FLT` | the module | build it, see [`src/chdk`](src/chdk/README.md#building) |
+| 🎞️ `CHDK/FILM/` | the film stocks | copy [`card/CHDK/FILM`](card/CHDK/FILM) from this repo |
 
-Unzip to the card root, replacing `AUTOEXEC.BIN`. Or copy
-[`card/`](card) from this repo, which is the same files.
-
-| file | what it is |
-|:--|:--|
-| 📄 `AUTOEXEC.BIN` | replaces Magic Lantern's |
-| ⚙️ `SE.BIN` | the engine |
-| 🎞️ `ML/FILM/` | the film stocks |
+There's no prebuilt release yet, so for now the module has to be built
+from source alongside CHDK.
 
 <br>
 
-### ✅ &nbsp; Put the card in and switch the camera on
+### ✅ &nbsp; Open it
 
-That's it. Nothing to enable, no menu to find.
-
-> While Soup Engine is installed you won't have Magic Lantern's own
-> menu, since this replaces the file that provides it. Put their
-> `autoexec.bin` back whenever you want it again.
+In CHDK's menu: **Tools → Soup Engine**.
 
 <br>
 
@@ -117,37 +94,32 @@ That's it. Nothing to enable, no menu to find.
 
 ## 📷 Using it
 
-Press the **trash button** and the picker fills the screen.
-
 | button | what it does |
 |:--|:--|
-| 🎛️ **Wheel** | choose a film |
-| ↕️ **Up / Down** | choose where the look comes from |
-| ✅ **`SET`** | pick that film and close |
-| 🗑️ **Trash** | close, changing nothing |
+| ↕️ **Up / Down** | choose a film |
+| ↔️ **Left / Right** | half size or full size |
+| ✅ **`SET`** | develop the newest photo |
+| 📚 **`DISP`** | develop every photo in the folder that has no film copy yet |
+| 🗑️ **Trash** | AUTO on or off: develop each new photo after it's taken |
+| ↩️ **`MENU`** | close the picker. AUTO keeps running. |
 
-Your choice survives switching the camera off.
+Your choices survive switching the camera off.
 
-Each photo takes about twenty seconds to develop. You can keep shooting
-while it works, and the screen shows `FRAME 2 OF 3` when there's a
-queue.
+Developing runs in the background, so you can keep shooting with AUTO on.
+Expect roughly a minute per photo at half size. That's an estimate, not a
+measurement yet.
 
 <br>
 
-> ### ⚠️ Set your Picture Style to Standard, Neutral or Faithful
+> ### ⚠️ Turn *My Colors* off
 >
-> On Monochrome every look comes out black and white.
+> The looks start from the camera's own JPEG. With My Colors set to B/W
+> or Sepia, every look comes out that way.
 
 <br>
 
-**`SOURCE: JPEG`** is the default. Use this.
-
-**`SOURCE: RAW`** works from the sensor data instead. It takes minutes
-rather than seconds, some colour adjustments can't be applied, and
-`ACROS` won't be black and white.
-
-`FILM SPEED 50` on the picker is only a label. It does not change your
-camera's ISO.
+Shooting **RAW only** gives Soup Engine nothing to work from. Shoot JPEG,
+or RAW + JPEG.
 
 <br>
 
@@ -159,8 +131,9 @@ camera's ISO.
 
 Thirteen, still under development.
 
-They're small text files in `ML/FILM` on the card, so you can read them,
-change them, or write your own.
+They're small text files in `CHDK/FILM` on the card, so you can read them,
+change them, or write your own. [`src/stocks`](src/stocks/README.md)
+explains the format.
 
 <br>
 
@@ -172,9 +145,6 @@ change them, or write your own.
 
 Drop in a photo, move sliders, download a `.fs`, put it on the card.
 
-The preview is this engine's own code compiled to WebAssembly, so it
-matches what the camera writes.<br>Your photo never leaves your browser.
-
 </div>
 
 <br>
@@ -185,15 +155,12 @@ matches what the camera writes.<br>Your photo never leaves your browser.
 
 ## 🧹 Removing it
 
-Put Magic Lantern's original `autoexec.bin` back. That's all.
+Delete `CHDK/MODULES/SOUP.FLT`. The film copies in `A/FILM` are ordinary
+JPEGs; keep them or delete them.
 
-To pause it without uninstalling, delete `SE.BIN`. The camera boots
-normally without it.
-
-> 🆘 **If the camera ever misbehaves:** pull the battery, put the card
-> in a computer, delete `SE.BIN`. Don't delete `AUTOEXEC.BIN` while the
-> boot flag is on, because with the flag set and no `AUTOEXEC.BIN` the
-> camera won't start at all.
+> 🆘 **If the camera ever misbehaves:** take the battery out, put the
+> card in a computer, delete `SOUP.FLT`. CHDK and the camera carry on
+> without it.
 
 <br>
 
@@ -203,21 +170,24 @@ normally without it.
 
 ## ❤️ Thanks
 
-This wouldn't exist without [Magic Lantern](https://magiclantern.fm).
+Soup Engine was written for the **Canon EOS 5D Classic** by
+[@jiijii0](https://github.com/jiijii0), inside Magic Lantern:
+[jiijii0/soup-engine](https://github.com/jiijii0/soup-engine). The film
+looks, the stock format and the whole engine are that project's. This
+repository is the PowerShot port, as a CHDK module.
 
-Soup Engine runs inside their work. Their build for the 5D Classic is
-what lets the camera run any of this, and years of their reverse
-engineering made it possible to understand. They're worth supporting.
-
-Soup Engine isn't their project, so please don't take problems with it
-to them. Open an issue here instead.
+It runs on [CHDK](https://chdk.fandom.com/wiki/CHDK), which makes running
+code on a PowerShot possible at all. The original exists thanks to
+[Magic Lantern](https://magiclantern.fm). This port isn't either
+project's, so please bring problems with it here, not to them.
 
 <br>
 
 ## 📄 Source and licence
 
-All of it is in [`src/`](src). `AUTOEXEC.BIN` is Magic Lantern's program
-with 215 bytes changed, and the script that applies them is there too.
+All of it is in [`src/`](src). The camera side is in
+[`src/chdk/`](src/chdk), with what's tested, what's missing and how to
+build it.
 
 GPL v2. See [LICENSE](LICENSE). Distributed **without any warranty**,
 including the implied warranties of merchantability and fitness for a

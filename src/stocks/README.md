@@ -1,7 +1,7 @@
 # Film stocks
 
-One file per stock. Drop them in `ML/FILM/` on the card; the camera lists
-whatever it finds there, so adding a stock needs no rebuild.
+One file per stock. Copy them to `CHDK/FILM/` on the card and name them in
+`INDEX.TXT` there; adding a stock needs no rebuild.
 
 A stock has two halves, and the split is not cosmetic — it is the
 difference between the two develop paths.

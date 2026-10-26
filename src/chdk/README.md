@@ -1,120 +1,100 @@
-# Soup Engine for PowerShot (CHDK)
+# The CHDK module
 
-> ⚠️ **Experimental, and not yet run on a camera.** It builds into a valid
-> CHDK module, and the develop is tested on the desktop against real G10
-> frames. Nobody has run it on a G10 or G12 yet. Try it on a card you
-> don't mind reformatting.
+Soup Engine for PowerShots, as a CHDK module (`SOUP.FLT`). For installing
+and using it, see the [main README](../../README.md). This page covers how
+it works, what's tested, and how to build it.
 
-The 5D build lives inside Magic Lantern. PowerShots don't have Magic
-Lantern; they have [CHDK](https://chdk.fandom.com/wiki/CHDK), which loads
-modules from the card. This directory is Soup Engine as one of those
-modules.
+> ⚠️ **Not yet run on a camera.** It builds into a valid CHDK module, and
+> the develop is tested on the desktop against real G10 frames. Everything
+> below about the camera itself is untested.
 
-It does what the 5D does on its default `SOURCE: JPEG` path. You pick a
-film, and each photo gets a second JPEG with the look on it. The original
-is never touched.
+## How it works
 
-```
-A/DCIM/100CANON/IMG_1234.JPG     the camera's photo, untouched
-A/FILM/100CANON/IMG_1234.JPG     the same photo with the look on it
-```
+CHDK loads modules from `A/CHDK/MODULES` and lists the ones marked as
+tools under its Tools menu. This one does the engine's JPEG path. It
+takes the camera's own JPEG, decodes it, runs it through the film look,
+and encodes a new JPEG. All of that is streamed, so it needs a few
+hundred KB rather than a whole frame in memory.
 
-The copies go in their own folder, not next to the original. That keeps
-Canon's playback and file numbering out of it, but it also means the
-copies don't show up when you review photos on the camera.
+The develop runs on a task of its own, not on CHDK's. Its deepest call
+needs about 10 KB of stack, and CHDK's own task has 8 KB. A separate task
+also keeps the picker drawing during a develop, and lets AUTO keep working
+after the picker is closed. CHDK keeps a module loaded for as long as the
+module says it can't be unloaded.
+
+Each output is written as `A/FILM/SOUP.TMP` and renamed into place once
+it's complete. If the battery dies mid-develop, you never get a truncated
+JPEG that looks finished.
 
 ## Cameras
 
-Written for the **G10** and the **G12**. Both have DIGIC 4, which uses the
-same ARM946E-S core as the 5D Classic's DIGIC II. Nothing in the module
-depends on the model, so other DIGIC 4 PowerShots with a CHDK port may
-work as well.
+Written for the **G10** and **G12**. Both have DIGIC 4, which uses the same
+ARM946E-S core the engine was first written for, on the 5D Classic's
+DIGIC II. Nothing in the module depends on the model, so other DIGIC 4
+PowerShots with a CHDK port may work too.
 
-## Installing
+## Not done (yet)
 
-1. Install CHDK for your camera and firmware. Their wiki explains how to
-   find your firmware version.
-2. Build `soup.flt` (see below) and copy it to `A/CHDK/MODULES/SOUP.FLT`.
-3. Copy the film stocks, the files in [`../../card/ML/FILM/`](../../card/ML/FILM),
-   to `A/CHDK/FILM/`. They're the same `.fs` files the 5D uses, and the
-   [Soup Stocks](https://jiijii0.github.io/soup-stocks/) editor works for
-   both.
-
-## Using it
-
-In CHDK's menu: **Tools → Soup Engine**.
-
-| key | what it does |
-|:--|:--|
-| **Up / Down** | choose a film |
-| **Left / Right** | half size or full size |
-| **SET** | develop the newest photo in the current folder |
-| **DISP** | develop every photo in the folder that has no film copy yet |
-| **Trash** | AUTO on or off: develop each new photo after it's taken |
-| **MENU** | close the picker. AUTO keeps running. |
-
-The film, the size and AUTO are remembered in `A/CHDK/FILM/SOUP.CFG`.
-What was developed, and why anything wasn't, is logged to
-`A/CHDK/FILM/SOUP.LOG`.
-
-Developing runs on its own task, so the picker keeps updating and you
-can keep shooting with AUTO on. Expect roughly a minute per photo at half
-size. That's an estimate scaled from the 5D's timings, not a measurement.
-
-## What it doesn't do (yet)
-
-- **`SOURCE: RAW`.** CHDK can save raw files, but the engine's raw path
-  is built around the 5D's CR2 and its colour matrix. The G10 and G12 need
+- **Raw.** CHDK can save raw files, but the engine's raw path is built
+  around the 5D's CR2 and its colour matrix. The G10 and G12 would need
   their own matrices, and CHDK's DNG files would need a reader.
 - **JPEGs with restart markers.** The streaming decoder refuses them and
-  says so in the log. The G10's own JPEGs don't use them. No
+  says so in `SOUP.LOG`. The G10's JPEGs don't use them. No
   straight-from-camera G12 file has been checked yet. If yours do, every
-  develop will fail with "unsupported variant", and that's worth an issue.
+  develop fails with "unsupported variant", and that's worth an issue.
 - **Progress while shooting.** With AUTO on and the picker closed, nothing
-  on the screen shows that a frame is developing.
+  on screen shows that a frame is developing.
 
 ## Memory
 
-The develop takes about 350 KB from Canon's heap at half size and 600 KB
-at full size, then gives it back. `tools/chdktest` measures this on every
-run. If the camera can't spare it, the log records the largest free block
-it found.
+A develop takes about 350 KB of Canon's heap at half size and 600 KB at
+full size, all in one allocation, and gives it back afterwards. The
+module's own static memory is about 24 KB, mostly the loaded stocks. If
+an allocation fails, `SOUP.LOG` records the largest free block the camera
+had.
 
 ## Building
 
-You need CHDK's source and an `arm-none-eabi-gcc` that CHDK supports
-(GCC 4, 5 or 8 to 11; check their build docs). Then:
+You need [CHDK's source](https://chdk.fandom.com/wiki/CHDK) and
+an `arm-none-eabi-gcc` that CHDK supports: GCC 4, 5, or 8 to 11. Then:
 
 ```sh
 cp src/chdk/makefile_usermodules.inc <chdk>/trunk/modules/
 make -C <chdk>/trunk PLATFORM=g12 PLATFORMSUB=100c \
-     SOUP=/path/to/soup-engine/src fir
-# -> <chdk>/trunk/modules/.o/soup.flt
+     SOUP=/path/to/this/repo/src fir
+# -> <chdk>/trunk/modules/.o/soup.flt, which goes on the card as CHDK/MODULES/SOUP.FLT
 ```
 
 CHDK's `modules/Makefile` includes `makefile_usermodules.inc` if it
-exists; that file is CHDK's hook for out-of-tree modules. Use your own
-`PLATFORM` and `PLATFORMSUB` (camera and firmware). The module isn't tied
-to either.
+exists; that's CHDK's hook for out-of-tree modules. Use your camera's
+`PLATFORM` and `PLATFORMSUB` (its firmware version); the module doesn't
+depend on either.
+
+The module is built in ARM mode rather than CHDK's usual Thumb, because
+the per-pixel code relies on 32×32→64 multiplies. It also carries the
+libgcc soft-float helpers that CHDK doesn't export.
 
 ## Testing on the desktop
 
 ```sh
 mkdir -p samples/powershot && cp /path/to/IMG_*.JPG samples/powershot/
-make chdktest
+make chdktest        # from src/
 ```
 
-This runs [`soup_dev.c`](soup_dev.c), the same file that runs on the
-camera, with half of all reads coming back short and a 1 MB heap cap. It
-checks that each output is byte-for-byte identical to a develop done
-with the whole file in RAM.
+`soup_dev.c` contains no CHDK code. Everything it needs from the camera
+goes through the `sd_*` calls in `soup_dev.h`. `tools/chdktest.c` answers
+those calls with a card that returns half its reads short and a heap
+capped at 1 MB, and checks that each output is byte-for-byte identical to
+a develop done with the whole file in memory. It also checks the module's
+`vsnprintf` against the system's.
 
 ## Files
 
 | | |
 |:--|:--|
 | `soup.c` | the module: the picker, the card, the develop task, AUTO |
-| `soup_dev.c` | the develop: camera JPEG → look → JPEG, streamed. No CHDK in it. |
+| `soup_dev.c`, `soup_dev.h` | the develop: camera JPEG → look → JPEG, streamed |
+| `vsnprintf.c` | the one libc function the engine needs that CHDK doesn't export |
 | `makefile_usermodules.inc` | the build rules, dropped into CHDK's `modules/` |
-| `libgcc.ld` | folds the soft-float helpers into one section so `elf2flt` accepts them |
-| `stdint.h`, `cam.h` | the two headers CHDK's `-nostdinc` build is missing |
+| `libgcc.ld` | folds libgcc's helpers into one section, so `elf2flt` accepts them |
+| `stdint.h` | the header CHDK's `-nostdinc` build is missing |

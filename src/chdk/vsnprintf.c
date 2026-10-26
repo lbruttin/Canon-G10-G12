@@ -1,69 +1,15 @@
 /*
- * libc.c - the six functions engine/se_libc.h declares, for the camera.
+ * vsnprintf.c - the one libc function the engine needs that CHDK does not
+ * export. se_log formats every line through it.
  *
- * The engine was written against a deliberately tiny libc surface so that
- * this file could stay small enough to audit. memcpy defers to Canon's ROM
- * implementation, which is word-at-a-time and considerably faster than
- * anything worth writing here; the rest are byte loops because they only
- * ever see short strings.
+ * This is the 5D payload's own implementation, unchanged, from the Magic
+ * Lantern build this project began as. tools/chdktest.c checks it against
+ * the system's for every format the engine uses.
  */
-#include <cam.h>
+#include <stdint.h>
+#include <stddef.h>
 #include <stdarg.h>
 
-void *memcpy(void *dst, const void *src, size_t n)
-{
-    /*
-     * Canon's memcpy does not document its behaviour for n == 0 and the
-     * engine does call it with zero-length bands at the bottom edge of a
-     * frame, so screen that case here rather than find out.
-     */
-    if (n) CAM_CALL3(CAM_memcpy, void, dst, src, n);
-    return dst;
-}
-
-void *memset(void *dst, int c, size_t n)
-{
-    uint8_t *d = (uint8_t *)dst;
-    uint8_t  v = (uint8_t)c;
-
-    /* Word-fill the aligned middle: the UI clears a 86 KB framebuffer and
-     * the arena is wiped per frame, so this is not a hot-air optimisation. */
-    while (n && ((uintptr_t)d & 3u)) { *d++ = v; n--; }
-    if (n >= 4) {
-        uint32_t  w  = (uint32_t)v * 0x01010101u;
-        uint32_t *wp = (uint32_t *)(void *)d;
-        size_t    nw = n >> 2;
-        while (nw--) *wp++ = w;
-        d  = (uint8_t *)(void *)wp;
-        n &= 3u;
-    }
-    while (n--) *d++ = v;
-    return dst;
-}
-
-size_t strlen(const char *s)
-{
-    const char *p = s;
-    while (*p) p++;
-    return (size_t)(p - s);
-}
-
-int strcmp(const char *a, const char *b)
-{
-    while (*a && *a == *b) { a++; b++; }
-    return (int)(unsigned char)*a - (int)(unsigned char)*b;
-}
-
-int strncmp(const char *a, const char *b, size_t n)
-{
-    while (n && *a && *a == *b) { a++; b++; n--; }
-    if (!n) return 0;
-    return (int)(unsigned char)*a - (int)(unsigned char)*b;
-}
-
-/* ===================================================================== */
-/* vsnprintf                                                              */
-/* ===================================================================== */
 /*
  * Supports exactly what the engine and the menu use: %d %u %x %X %s %c %%,
  * a field width, zero padding, '-' left alignment, and the 'l' length

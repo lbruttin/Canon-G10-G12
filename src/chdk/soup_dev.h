@@ -2,10 +2,10 @@
  * soup_dev.h - the PowerShot develop: a camera JPEG in, the same frame with
  * a film look out.
  *
- * This is ml/payload/film.c's develop_preview() with the CR2 taken out. On
- * a G10 or G12 the camera's own JPEG is a file of its own, so there is no
- * preview to dig out of a raw: the develop is decode -> look -> encode,
- * streamed through a few hundred KB, exactly as on the 5D.
+ * It is the 5D build's preview develop with the CR2 taken out. On a G10 or
+ * G12 the camera's own JPEG is a file of its own, so there is no preview
+ * to dig out of a raw: the develop is decode -> look -> encode, streamed
+ * through a few hundred KB, exactly as on the 5D.
  *
  * Nothing in here knows about CHDK. Everything it asks of the camera goes
  * through the sd_* calls below, which chdk/soup.c answers with CHDK's own
@@ -39,8 +39,8 @@ void  sd_progress(int percent);
 #define SD_MAX_STOCKS 24
 
 /*
- * Load the stocks named in <dir>/INDEX.TXT, one file name per line, which
- * is the same card layout as ML/FILM on the 5D. Returns how many loaded.
+ * Load the stocks named in <dir>/INDEX.TXT, one file name per line, in
+ * that order. Returns how many loaded.
  * With no index, or nothing in it, a single straight "Standard" stock is
  * returned so the picker never shows an empty list.
  */
