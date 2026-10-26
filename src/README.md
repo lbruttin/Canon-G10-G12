@@ -9,6 +9,7 @@ simulator and the film stocks.
 |:--|:--|
 | `engine/` | the look, the stock format, the CR2 reader, the JPEG codec. Freestanding C99, integer only on every per-pixel path, no libc. The same files build for the camera and for the desktop. |
 | `ml/payload/` | the camera side. `film.c` is the engine's life on the body: the picker, the watcher, the develop queue. `mlstub.S` is the 215 bytes that live inside Magic Lantern's program. |
+| `chdk/` | the PowerShot G10 / G12 port, as a CHDK module. Experimental; see [chdk/README.md](chdk/README.md). |
 | `host/` | `filmdev`, the desktop driver. Develops frames, builds contact sheets, writes cards. |
 | `tools/` | the simulator, the cross-checks, the release script. |
 | `stocks/` | the thirteen films, as plain text. |

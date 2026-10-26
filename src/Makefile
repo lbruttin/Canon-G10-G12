@@ -7,7 +7,7 @@
 # which says nothing about a missing sample.
 SAMPLES := $(wildcard samples/*.CR2) $(wildcard samples/*/*.CR2)
 
-.PHONY: all test test-full test-camera simtest asan arm clean contact payload
+.PHONY: all test test-full test-camera simtest chdktest asan arm clean contact payload
 
 all:
 	@$(MAKE) -s -C host
@@ -99,6 +99,28 @@ PREVIEW_SRC = tools/previewcheck.c engine/se.c engine/wb.c engine/cr2.c \
 out/previewcheck: $(PREVIEW_SRC) $(wildcard engine/*.h)
 	@mkdir -p out
 	@$(CAMTEST_CC) -o $@ $(PREVIEW_SRC) -lm
+
+# The PowerShot develop (chdk/soup_dev.c), on the desktop: short reads, a
+# 1 MB heap, and every frame compared byte for byte against an in-RAM
+# develop. Camera JPEGs from a G10 or G12 go in samples/powershot/.
+# -iquote, not -I: chdk/ also holds the CHDK build's stdint.h, which must
+# not stand in for the system's here.
+PS_SAMPLES := $(wildcard samples/powershot/*.JPG)
+CHDKTEST_SRC = tools/chdktest.c chdk/soup_dev.c engine/se.c engine/wb.c \
+	       engine/lut.c engine/stock.c engine/grade.c engine/jpeg_enc.c \
+	       engine/jpeg_dec.c engine/look.c
+
+chdktest:
+	@mkdir -p out
+	@cc -std=c99 -O2 -g -Wall -Wextra -Wno-unused-parameter \
+	   -Wno-missing-field-initializers -DSE_HOSTED $(SDK) -Iengine -iquote chdk \
+	   -o out/chdktest $(CHDKTEST_SRC) -lm
+	@test -n "$(PS_SAMPLES)" || { echo "no camera JPEGs in samples/powershot/"; exit 1; }
+	@for f in $(PS_SAMPLES); do for s in 1 2; do for st in velvia acros portra; do \
+	   echo "--- `basename $$f` $$st 1/$$s"; \
+	   ./out/chdktest $$f stocks $$st out/chdk_$$st.jpg $$s 1024 2>/dev/null \
+	     | grep -E 'develop:|PASS|FAIL' || exit 1; \
+	 done; done; done
 
 # The camera build. Produces two files for the card:
 #   ml/build/AUTOEXEC.BIN  the 2012 binary with 262 bytes changed, same size
