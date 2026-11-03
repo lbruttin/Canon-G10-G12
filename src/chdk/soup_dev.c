@@ -278,6 +278,31 @@ static int out_write(void *ctx, const uint8_t *data, size_t len)
 }
 
 /* ===================================================================== */
+/* Already developed?                                                     */
+/* ===================================================================== */
+
+/*
+ * Every film copy says so in its EXIF Software tag, which the encoder
+ * writes in the first few hundred bytes. Canon's own JPEGs never carry it,
+ * so this is how a photo that has replaced its original is recognised and
+ * left alone.
+ */
+#define SD_MARK_WINDOW 1024
+
+int sd_is_developed(const char *path)
+{
+    char buf[SD_MARK_WINDOW];
+    int  h = sd_open(path), n, i, k = (int)strlen(SD_MARK);
+
+    if (h == -1) return 0;
+    n = read_at(h, 0, buf, sizeof buf);
+    sd_close(h);
+    for (i = 0; i + k <= n; i++)
+        if (strncmp(buf + i, SD_MARK, (size_t)k) == 0) return 1;
+    return 0;
+}
+
+/* ===================================================================== */
 /* The develop                                                            */
 /* ===================================================================== */
 
@@ -332,6 +357,10 @@ se_err sd_develop(const char *in_path, const char *tmp_path,
     size_t       lookneed, scratch;
     int          size, ow, oh;
     se_err       rc;
+    char         software[sizeof SD_MARK + SE_STOCK_NAME];
+
+    str_copy(software, sizeof software, SD_MARK);
+    str_copy(software + strlen(software), SE_STOCK_NAME, stock->name);
 
     memset(&src, 0, sizeof src);
     memset(&out, 0, sizeof out);
@@ -382,7 +411,7 @@ se_err sd_develop(const char *in_path, const char *tmp_path,
     memset(&ex, 0, sizeof ex);
     ex.make     = "Canon";
     ex.model    = src.model;
-    ex.software = stock->name;
+    ex.software = software;
     ex.datetime = src.datetime;
     rc = se_jpeg_begin(L.enc, ow, oh, opts->quality, strip, &ex, out_write, &out);
     if (rc != SE_OK) goto done;
@@ -399,6 +428,9 @@ se_err sd_develop(const char *in_path, const char *tmp_path,
     sd_last_peak = arena.peak;
 
 done:
+    /* The source is closed first: out_path may be the source itself, when
+     * the film copy replaces the camera's original. */
+    if (src.h != -1) sd_close(src.h);
     if (out.h != -1) {
         sd_close(out.h);
         if (rc == SE_OK) {
@@ -407,7 +439,6 @@ done:
         }
         if (rc != SE_OK) sd_remove(tmp_path);
     }
-    if (src.h != -1) sd_close(src.h);
     if (block) sd_free(block);
     if (hdr) sd_free(hdr);
     return rc;

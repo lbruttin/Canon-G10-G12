@@ -17,6 +17,10 @@
  * proves the rebuilt header and the offset mapping in soup_dev.c hand the
  * decoder exactly the bytes it would have read from the original file.
  *
+ * Then the same frame is developed in place, over a copy of the camera's
+ * file -- what ORIG: REPLACE does -- and must come out the same, carry the
+ * "developed" mark the original does not, and leave no temporary behind.
+ *
  * With no arguments it checks the module's vsnprintf instead (chdk/
  * vsnprintf.c, built as se_vsnprintf) against the system's, for every
  * format the engine and the module use.
@@ -280,5 +284,34 @@ int main(int argc, char **argv)
     }
     remove(ref);
     printf("PASS: %ld image bytes, identical to the in-RAM develop\n", na - sa);
+
+    /* ORIG: REPLACE -- the film version written over the original. */
+    {
+        char     inplace[1024];
+        uint8_t *c, *orig;
+        long     nc, no, sc;
+        FILE    *f;
+
+        snprintf(inplace, sizeof inplace, "%s.inplace.jpg", argv[4]);
+        no = slurp(argv[1], &orig);
+        if (no <= 0 || !(f = fopen(inplace, "wb"))) { printf("FAIL: no copy to replace\n"); return 1; }
+        fwrite(orig, 1, (size_t)no, f);
+        fclose(f);
+        free(orig);
+
+        if (sd_is_developed(argv[1])) { printf("FAIL: the camera's original reads as developed\n"); return 1; }
+        rc = sd_develop(inplace, tmp, inplace, &stocks[pick], &o);
+        if (rc != SE_OK) { printf("FAIL: in-place develop rc=%d\n", rc); return 1; }
+        if (sd_size(tmp) >= 0) { printf("FAIL: %s left behind\n", tmp); return 1; }
+        if (!sd_is_developed(inplace)) { printf("FAIL: the replaced photo lacks the developed mark\n"); return 1; }
+        nc = slurp(inplace, &c);
+        sc = image_start(c, nc);
+        if (nc - sc != na - sa || memcmp(c + sc, a + sa, (size_t)(na - sa)) != 0) {
+            printf("FAIL: developing in place gave a different image\n"); return 1;
+        }
+        free(c);
+        remove(inplace);
+        printf("PASS: in place, the original replaced by the same image, marked as developed\n");
+    }
     return 0;
 }

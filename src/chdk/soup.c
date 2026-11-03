@@ -7,8 +7,10 @@
  * Tools menu. This is one.
  *
  * What it does is the 5D's JPEG path: pick a stock, and each photo gets a
- * second JPEG with the look on it, written to A/FILM/<folder>/ and never
- * touching the original. The develop itself is soup_dev.c, which is tested
+ * second JPEG with the look on it, written to A/FILM/<folder>/ beside an
+ * untouched original -- or, with ORIG set to REPLACE, written over the
+ * original in DCIM, so the film version is all there is and Canon's own
+ * playback shows it. The develop itself is soup_dev.c, which is tested
  * on the desktop by tools/chdktest.c; this file is only the camera side --
  * the picker, the card, and a task to run the develop on.
  *
@@ -19,7 +21,11 @@
  *   SET            develop the newest photo in the current folder
  *   DISP           develop every photo in it that has no film copy yet
  *   TRASH          AUTO on or off: develop each new photo as it is taken
+ *   ZOOM           ORIG: KEEP the camera's original, or REPLACE it
  *   MENU           close the picker (AUTO keeps running)
+ *
+ * With the picker closed, a developing frame shows as "FILM 37%" in the
+ * top right corner of the screen.
  *
  * The develop runs on a task of its own, not on CHDK's. Its deepest call
  * needs about 10 KB of stack -- se_jpeg_dec_info keeps its whole decoder
@@ -86,7 +92,13 @@ int sd_rename(const char *from, const char *to)
 }
 
 static volatile int soup_pct;
-void sd_progress(int pct) { soup_pct = pct; }
+static void badge(int pct);
+
+void sd_progress(int pct)
+{
+    soup_pct = pct;
+    badge(pct);
+}
 
 /* Only lines worth reading after the fact go to the card: what was
  * developed, and why anything was not. */
@@ -109,6 +121,7 @@ static se_stock     stocks[SD_MAX_STOCKS];
 static int          nstocks;            /* 0 until the task has loaded them */
 static int          sel;
 static int          scale = 2;
+static int          keep = 1;           /* 0: the film copy replaces it    */
 static char         want_stock[SE_STOCK_NAME];
 
 static int          running;            /* the picker is on screen         */
@@ -122,6 +135,53 @@ static char         current[16];        /* the frame being developed        */
 static volatile int need_redraw;
 
 /* ===================================================================== */
+/* The progress badge                                                     */
+/* ===================================================================== */
+
+/*
+ * With the picker closed, a frame developing in the background shows as
+ * "FILM  37%" in the top right corner, and goes when it is done.
+ *
+ * It is drawn from the develop task at every percentage step rather than
+ * once: Canon repaints its own screen whenever it likes, and a badge drawn
+ * once would not last. A step is a second or two. Never over CHDK's own
+ * screens, where it would land in the middle of a menu.
+ */
+#define BADGE_FMT  "FILM %3d%%"
+#define BADGE_LEN  9                    /* "FILM 100%" */
+
+static int badge_on;
+
+static void badge_xy(int *x, int *y)
+{
+    *x = camera_screen.disp_right - (BADGE_LEN + 1) * FONT_WIDTH;
+    *y = FONT_HEIGHT;
+}
+
+static void badge(int pct)
+{
+    char buf[BADGE_LEN + 1];
+    int  x, y;
+
+    if (running || !camera_info.state.gui_mode_none) return;
+    badge_xy(&x, &y);
+    sprintf(buf, BADGE_FMT, pct);
+    draw_string(x, y, buf, MAKE_COLOR(COLOR_BLACK, COLOR_YELLOW));
+    badge_on = 1;
+}
+
+static void badge_clear(void)
+{
+    int x, y;
+
+    if (!badge_on) return;
+    badge_on = 0;
+    badge_xy(&x, &y);
+    draw_rectangle(x, y, x + BADGE_LEN * FONT_WIDTH - 1, y + FONT_HEIGHT - 1,
+                   MAKE_COLOR(COLOR_TRANSPARENT, COLOR_TRANSPARENT), RECT_BORDER0 | DRAW_FILLED);
+}
+
+/* ===================================================================== */
 /* Settings                                                               */
 /* ===================================================================== */
 
@@ -130,8 +190,8 @@ static void cfg_save(void)
     char buf[64];
     int  h = open(SOUP_CFG, O_WRONLY | O_CREAT | O_TRUNC, 0777);
     if (h < 0) return;
-    sprintf(buf, "STOCK=%s\nSIZE=%d\nAUTO=%d\n",
-            nstocks ? stocks[sel].name : "", scale, auto_on);
+    sprintf(buf, "STOCK=%s\nSIZE=%d\nAUTO=%d\nKEEP=%d\n",
+            nstocks ? stocks[sel].name : "", scale, auto_on, keep);
     write(h, buf, strlen(buf));
     close(h);
 }
@@ -157,6 +217,7 @@ static void cfg_load(void)
         }
         else if (strncmp(line, "SIZE=", 5) == 0) scale = line[5] == '1' ? 1 : 2;
         else if (strncmp(line, "AUTO=", 5) == 0) auto_on = line[5] == '1';
+        else if (strncmp(line, "KEEP=", 5) == 0) keep = line[5] != '0';
     }
 }
 
@@ -235,25 +296,54 @@ static int settled(const char *path)
     return 0;
 }
 
+/* Where a photo's film version goes: A/FILM/..., or over the original. */
+static void dest_path(const char *dir, const char *name, char *out)
+{
+    if (keep) out_path(dir, name, out);
+    else      sprintf(out, "%s/%s", dir, name);
+}
+
+/* Is there already a film version of this photo? */
+static int developed(const char *dir, const char *name)
+{
+    char path[64];
+
+    sprintf(path, "%s/%s", dir, name);
+    if (sd_is_developed(path)) return 1;        /* it replaced the original */
+    if (!keep) return 0;
+    out_path(dir, name, path);
+    return sd_size(path) > 0;
+}
+
+/*
+ * With REPLACE the temporary file sits in the photo's own folder, so the
+ * last step is a rename within one directory, and the original is only
+ * removed once its replacement is complete.
+ */
 static int develop(const char *dir, const char *name)
 {
     const se_stock *st = &stocks[sel];  /* the picker may move on meanwhile */
-    char    in[64], out[64];
+    char    in[64], out[64], tmp[64];
     sd_opts o;
     se_err  rc;
     int     t0 = get_tick_count();
 
     sprintf(in, "%s/%s", dir, name);
-    out_path(dir, name, out);
     if (!settled(in)) { se_log("%s: still being written, skipped", in); return -1; }
+    if (sd_is_developed(in)) { sprintf(status, "%s is already a film copy", name); return -1; }
+    dest_path(dir, name, out);
+    if (keep) strcpy(tmp, SOUP_TMP);
+    else      sprintf(tmp, "%s/SOUP.TMP", dir);
 
     strcpy(current, name);
     soup_pct = 0;
     busy = 1;
+    badge(0);
     o.scale   = scale;
     o.quality = SOUP_QUALITY;
-    rc = sd_develop(in, SOUP_TMP, out, st, &o);
+    rc = sd_develop(in, tmp, out, st, &o);
     busy = 0;
+    badge_clear();
 
     if (rc == SE_OK) {
         se_log("%s -> %s, %s, %d s", in, out, st->name,
@@ -274,7 +364,7 @@ static int develop(const char *dir, const char *name)
 
 static void soup_task(void)
 {
-    char dir[32], name[16], out[64];
+    char dir[32], name[16];
     long shots = 0, waiting = 0;
     int  armed = 0, newest = 0, n;
 
@@ -298,8 +388,7 @@ static void soup_task(void)
             int done = 0;
             for (n = find_jpeg(dir, 0, name); n >= 0 && !task_quit && job == JOB_ALL;
                  n = find_jpeg(dir, n, name)) {
-                out_path(dir, name, out);
-                if (sd_size(out) > 0) continue;
+                if (developed(dir, name)) continue;
                 if (develop(dir, name) == 0) done++;
             }
             if (job == JOB_ALL) sprintf(status, "%d developed", done);
@@ -385,7 +474,8 @@ void gui_soup_draw(int force)
     last_pct  = soup_pct;
     last_busy = busy;
 
-    sprintf(buf, "SOUP ENGINE  %s  AUTO %s", scale == 1 ? "FULL" : "HALF", auto_on ? "ON" : "OFF");
+    sprintf(buf, "SOUP  %s  AUTO %s  ORIG %s", scale == 1 ? "FULL" : "HALF",
+            auto_on ? "ON" : "OFF", keep ? "KEEP" : "REPLACE");
     put_row(0, buf, MAKE_COLOR(COLOR_BLACK, COLOR_YELLOW));
 
     if (!nstocks) {
@@ -408,7 +498,7 @@ void gui_soup_draw(int force)
     else      strcpy(buf, status);
     put_row(4 + ROWS, buf, norm);
 
-    put_row(6 + ROWS, "SET last  DISP all  TRASH auto", dim);
+    put_row(6 + ROWS, "SET last  DISP all  TRASH auto  ZOOM orig", dim);
 }
 
 int gui_soup_kbd_process(void)
@@ -423,6 +513,11 @@ int gui_soup_kbd_process(void)
     case KEY_SET:     if (job == JOB_NONE) job = JOB_LAST; break;
     case KEY_DISPLAY: if (job == JOB_NONE) job = JOB_ALL;  break;
     case KEY_ERASE:   auto_on = !auto_on; strcpy(status, auto_on ? "AUTO: new photos" : ""); break;
+    case KEY_ZOOM_IN:
+    case KEY_ZOOM_OUT:
+        keep = !keep;
+        strcpy(status, keep ? "originals kept, copies in A/FILM" : "film version replaces the original");
+        break;
     default: return 0;
     }
     cfg_save();

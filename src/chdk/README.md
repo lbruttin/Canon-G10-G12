@@ -4,11 +4,11 @@ Soup Engine for PowerShots, as a CHDK module (`SOUP.FLT`). For installing
 and using it, see the [main README](../../README.md). This page covers how
 it works, what's tested, and how to build it.
 
-> ⚠️ **Experimental.** First run on a G10 (firmware 1.04A, CHDK 1.6.1,
-> module built with GCC 13 against CHDK's `release-1_6` branch): ACROS at
-> half size in 49 s, the output byte-identical to `chdktest`'s develop of
-> the same frame. AUTO, DISP and full size haven't been tried on the camera
-> yet, and the G12 not at all.
+> ⚠️ **Experimental.** Run on a G10 (firmware 1.04A, CHDK 1.6.1, module
+> built with GCC 13 against CHDK's `release-1_6` branch): ACROS in 49 s at
+> half size and 187 s at full size, AUTO and REPLACE working, the output
+> byte-identical to `chdktest`'s develop of the same frame. The G12 is
+> untested.
 
 ## How it works
 
@@ -24,9 +24,13 @@ also keeps the picker drawing during a develop, and lets AUTO keep working
 after the picker is closed. CHDK keeps a module loaded for as long as the
 module says it can't be unloaded.
 
-Each output is written as `A/FILM/SOUP.TMP` and renamed into place once
-it's complete. If the battery dies mid-develop, you never get a truncated
-JPEG that looks finished.
+Each output is written to a temporary `SOUP.TMP` and renamed into place
+once it's complete. If the battery dies mid-develop, you never get a
+truncated JPEG that looks finished. With REPLACE, the temporary file sits
+in the photo's own folder, and the original is removed only once its
+replacement is complete. Every film version carries `Soup Engine <stock>`
+in its EXIF Software tag, so a photo that has replaced its original is
+never developed a second time.
 
 ## Cameras
 
@@ -44,8 +48,10 @@ PowerShots with a CHDK port may work too.
   says so in `SOUP.LOG`. The G10's JPEGs don't use them. No
   straight-from-camera G12 file has been checked yet. If yours do, every
   develop fails with "unsupported variant", and that's worth an issue.
-- **Progress while shooting.** With AUTO on and the picker closed, nothing
-  on screen shows that a frame is developing.
+- **Applying the look at the moment of capture.** The only point before
+  Canon's JPEG is the raw buffer, and CHDK's hook there (Custom Curves) is
+  disabled on 12-bit sensors like the G10's. Even working, it could only
+  apply per-channel curves: no saturation, hue shifts, grain or halation.
 
 ## Memory
 

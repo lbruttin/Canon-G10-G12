@@ -36,7 +36,11 @@ SDK := $(shell for s in MacOSX26.5.sdk MacOSX26.sdk MacOSX15.sdk; do \
 # The camera's code on the desktop: the module's vsnprintf against the
 # system's, then chdk/soup_dev.c developing real G10/G12 JPEGs with short
 # reads and a 1 MB heap, each compared byte for byte against an in-RAM
-# develop. Put camera JPEGs in samples/powershot/.
+# develop, then once more in place, as ORIG: REPLACE does. Put camera
+# JPEGs in samples/powershot/.
+#
+# The test's own exit status decides, not grep's: piping it through grep
+# would report a crashed or failing run as a pass.
 #
 # -iquote, not -I: chdk/ also holds the CHDK build's stdint.h, which must
 # not stand in for the system's here. The module's vsnprintf is renamed so
@@ -57,8 +61,9 @@ chdktest:
 	@test -n "$(PS_SAMPLES)" || { echo "no camera JPEGs in samples/powershot/"; exit 1; }
 	@for f in $(PS_SAMPLES); do for s in 1 2; do for st in velvia acros portra; do \
 	   echo "--- `basename $$f` $$st 1/$$s"; \
-	   ./out/chdktest $$f stocks $$st out/chdk_$$st.jpg $$s 1024 2>/dev/null \
-	     | grep -E 'develop:|PASS|FAIL' || exit 1; \
+	   ./out/chdktest $$f stocks $$st out/chdk_$$st.jpg $$s 1024 > out/chdktest.log 2>&1; \
+	   rc=$$?; grep -E 'develop:|PASS|FAIL' out/chdktest.log; \
+	   test $$rc -eq 0 || { echo "chdktest failed (exit $$rc)"; exit 1; }; \
 	 done; done; done
 
 asan:

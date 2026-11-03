@@ -13,16 +13,20 @@
 <br>
 
 Open **Soup Engine** from CHDK's Tools menu and a list of film stocks
-fills the screen. Pick one, and every photo gets a second JPEG with the
-look already on it.
+fills the screen. Pick one, switch AUTO on, and shoot: every photo is
+developed with the look a minute or three later, in the background.
+
+By default the original is kept and the film version goes beside it:
 
 ```
 A/DCIM/100CANON/IMG_1234.JPG     your photo, untouched
 A/FILM/100CANON/IMG_1234.JPG     the same photo with the look on it
 ```
 
-Your photos are never modified. Delete `A/FILM` and the card is exactly as
-the camera left it.
+Or set **ORIG: REPLACE**, and the film version takes the original's
+place. Then it's the only version on the card, and the camera's own
+playback shows it. The original is only removed once the film version
+has been fully written.
 
 <br>
 
@@ -34,10 +38,10 @@ All thirteen looks on one frame.
 
 <br>
 
-> ⚠️ **Experimental.** It runs on a G10 (firmware 1.04A, CHDK 1.6.1): a
-> frame developed in 49 seconds at half size, and came out byte-identical
-> to the same develop on the desktop. That is one camera and a handful of
-> frames so far, and the G12 is untested. Please open an issue with what
+> ⚠️ **Experimental.** It runs on a G10 (firmware 1.04A, CHDK 1.6.1):
+> AUTO, REPLACE and both sizes work, and a frame developed on the camera
+> came out byte-identical to the same develop on the desktop. That is one
+> camera so far, and the G12 is untested. Please open an issue with what
 > happens on yours.
 
 > ⚖️ **No warranty.** Like all GPL software this comes with none. You
@@ -102,13 +106,18 @@ In CHDK's menu: **Tools → Soup Engine**.
 | ✅ **`SET`** | develop the newest photo |
 | 📚 **`DISP`** | develop every photo in the folder that has no film copy yet |
 | 🗑️ **Trash** | AUTO on or off: develop each new photo after it's taken |
+| 🔍 **Zoom** | ORIG: KEEP the original, or REPLACE it with the film version |
 | ↩️ **`MENU`** | close the picker. AUTO keeps running. |
 
-Your choices survive switching the camera off.
+Your choices survive switching the camera off. CHDK doesn't load modules
+by itself, though: after switching on, open Soup Engine once so AUTO
+starts.
 
-Developing runs in the background, so you can keep shooting with AUTO on.
-On a G10 a photo takes about 50 seconds at half size; full size takes
-longer.
+Developing runs in the background, so you can keep shooting. While a
+photo develops, **`FILM 37%`** shows in the top right corner. On a G10 a
+photo takes about 50 seconds at half size and about 3 minutes at full
+size. With REPLACE, use full size, or the film version keeps only a
+quarter of the pixels.
 
 <br>
 
@@ -154,10 +163,26 @@ Drop in a photo, move sliders, download a `.fs`, put it on the card.
 
 <br>
 
+### Starting CHDK by itself
+
+CHDK normally has to be started from the playback menu (**Firm Update…**)
+each time the camera is switched on. The G10 can start it by itself from
+a **FAT16** card, which caps the card at 2 GB (about 500 JPEGs). Format the
+card as FAT16, put CHDK on it, run **Miscellaneous stuff → SD Card → Make
+Card Bootable** once, and slide the card's tab to **LOCK**. Photos still
+save with the tab locked; CHDK takes care of that.
+
+<br>
+
+---
+
+<br>
+
 ## 🧹 Removing it
 
 Delete `CHDK/MODULES/SOUP.FLT`. The film copies in `A/FILM` are ordinary
-JPEGs; keep them or delete them.
+JPEGs; keep them or delete them. Photos developed with REPLACE have no
+original left.
 
 > 🆘 **If the camera ever misbehaves:** take the battery out, put the
 > card in a computer, delete `SOUP.FLT`. CHDK and the camera carry on

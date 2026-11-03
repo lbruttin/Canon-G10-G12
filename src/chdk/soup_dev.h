@@ -53,15 +53,27 @@ typedef struct {
 } sd_opts;
 
 /*
- * Develop `in_path` into `out_path`.
+ * Develop `in_path` into `out_path`, which may be `in_path` itself: the
+ * film copy then replaces the camera's original.
  *
  * The output is written under `tmp_path` and renamed into place only once
  * it is complete, so a frame interrupted by the battery or the power
- * switch never leaves behind a truncated JPEG that looks finished.
+ * switch never leaves behind a truncated JPEG that looks finished -- and
+ * an original being replaced is only removed once its replacement exists.
+ * `tmp_path` must be on the same card as `out_path`.
  */
 se_err sd_develop(const char *in_path, const char *tmp_path,
                   const char *out_path, const se_stock *stock,
                   const sd_opts *opts);
+
+/*
+ * What every film copy's EXIF Software tag starts with, followed by the
+ * stock's name. sd_is_developed() looks for it, so a photo that has
+ * replaced its original is never developed a second time.
+ */
+#define SD_MARK "Soup Engine "
+
+int sd_is_developed(const char *path);
 
 /* The arena high-water mark of the last develop, for the desktop test. */
 extern size_t sd_last_peak;
