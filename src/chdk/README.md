@@ -4,9 +4,11 @@ Soup Engine for PowerShots, as a CHDK module (`SOUP.FLT`). For installing
 and using it, see the [main README](../../README.md). This page covers how
 it works, what's tested, and how to build it.
 
-> ⚠️ **Not yet run on a camera.** It builds into a valid CHDK module, and
-> the develop is tested on the desktop against real G10 frames. Everything
-> below about the camera itself is untested.
+> ⚠️ **Experimental.** First run on a G10 (firmware 1.04A, CHDK 1.6.1,
+> module built with GCC 13 against CHDK's `release-1_6` branch): ACROS at
+> half size in 49 s, the output byte-identical to `chdktest`'s develop of
+> the same frame. AUTO, DISP and full size haven't been tried on the camera
+> yet, and the G12 not at all.
 
 ## How it works
 
@@ -28,7 +30,7 @@ JPEG that looks finished.
 
 ## Cameras
 
-Written for the **G10** and **G12**. Both have DIGIC 4, which uses the same
+Run on the **G10**, written for the **G12** as well. Both have DIGIC 4, which uses the same
 ARM946E-S core the engine was first written for, on the 5D Classic's
 DIGIC II. Nothing in the module depends on the model, so other DIGIC 4
 PowerShots with a CHDK port may work too.

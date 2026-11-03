@@ -34,10 +34,11 @@ All thirteen looks on one frame.
 
 <br>
 
-> ⚠️ **Experimental: not yet run on a camera.** The module builds, and
-> its develop is tested on the desktop against real G10 frames. Nobody
-> has run it on a G10 or G12 yet. Try it on a card you don't mind
-> reformatting, and please open an issue with what happens.
+> ⚠️ **Experimental.** It runs on a G10 (firmware 1.04A, CHDK 1.6.1): a
+> frame developed in 49 seconds at half size, and came out byte-identical
+> to the same develop on the desktop. That is one camera and a handful of
+> frames so far, and the G12 is untested. Please open an issue with what
+> happens on yours.
 
 > ⚖️ **No warranty.** Like all GPL software this comes with none. You
 > install it at your own risk. See sections 11 and 12 of the
@@ -106,8 +107,8 @@ In CHDK's menu: **Tools → Soup Engine**.
 Your choices survive switching the camera off.
 
 Developing runs in the background, so you can keep shooting with AUTO on.
-Expect roughly a minute per photo at half size. That's an estimate, not a
-measurement yet.
+On a G10 a photo takes about 50 seconds at half size; full size takes
+longer.
 
 <br>
 
