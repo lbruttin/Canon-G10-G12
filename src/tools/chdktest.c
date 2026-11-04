@@ -106,6 +106,8 @@ void sd_free(void *q)
 
 void sd_progress(int pct) { if (pct % 25 == 0) fprintf(stderr, " %d%%", pct); }
 
+int sd_ms(void) { return (int)(clock() * 1000.0 / CLOCKS_PER_SEC); }
+
 static void log_line(void *ctx, const char *msg) { fprintf(stderr, "log: %s\n", msg); }
 
 /* ---- the reference: the whole file in RAM, no streaming ---------------- */
@@ -263,6 +265,9 @@ int main(int argc, char **argv)
            "%ld reads of which %ld short\n",
            rc, se_strerror(rc), (double)(clock() - t0) / CLOCKS_PER_SEC,
            heap_peak >> 10, sd_last_peak >> 10, reads, short_reads);
+    printf("stages, ms: read %d, decode %d, look %d, encode %d, write %d, other %d\n",
+           sd_last_times.read, sd_last_times.decode, sd_last_times.look,
+           sd_last_times.encode, sd_last_times.write, sd_last_times.setup);
     if (rc != SE_OK) return 1;
     if (heap_used) { printf("FAIL: %zu bytes still allocated\n", heap_used); return 1; }
 

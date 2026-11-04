@@ -4,7 +4,7 @@
 # deep under samples/.
 SAMPLES := $(wildcard samples/*.CR2) $(wildcard samples/*/*.CR2)
 
-.PHONY: all test test-full chdktest asan arm clean contact
+.PHONY: all test test-full chdktest carddev asan arm clean contact
 
 all:
 	@$(MAKE) -s -C host
@@ -66,6 +66,19 @@ chdktest:
 	   test $$rc -eq 0 || { echo "chdktest failed (exit $$rc)"; exit 1; }; \
 	 done; done; done
 
+# carddev: develop a PowerShot card's photos on the computer, with the
+# module's own develop -- a second a frame instead of two minutes. Builds
+# ./carddev; run it with the card in, e.g. ./carddev /Volumes/CANON
+CARDDEV_SRC = tools/carddev.c chdk/soup_dev.c engine/se.c engine/wb.c \
+	      engine/lut.c engine/stock.c engine/grade.c engine/jpeg_enc.c \
+	      engine/jpeg_dec.c engine/look.c
+
+carddev:
+	@cc -std=c99 -O2 -Wall -Wextra -Wno-unused-parameter \
+	   -Wno-missing-field-initializers -DSE_HOSTED -D_DEFAULT_SOURCE $(SDK) \
+	   -Iengine -iquote chdk -o carddev $(CARDDEV_SRC) -lm
+	@echo "built ./carddev -- run ./carddev /Volumes/CANON"
+
 asan:
 	@$(MAKE) -s -C host asan
 
@@ -85,4 +98,4 @@ contact: all
 
 clean:
 	@$(MAKE) -s -C host clean
-	@rm -rf out
+	@rm -rf out carddev

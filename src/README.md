@@ -9,13 +9,16 @@ The engine, the CHDK module, the desktop tools and the film stocks.
 | `engine/` | the look, the stock format, the JPEG codec, and the CR2 reader the desktop tool uses. Freestanding C99, integer only on every per-pixel path, no libc. The same files build for the camera and for the desktop. |
 | `chdk/` | the camera side: the CHDK module for the G10 and G12. See [chdk/README.md](chdk/README.md). |
 | `host/` | `filmdev`, the desktop driver. Develops CR2 frames, builds contact sheets, writes cards, turns Lightroom edits into stocks. |
-| `tools/` | `chdktest` (the module's develop on the desktop) and the engine's own cross-checks. |
+| `tools/` | `carddev` (develop a card on the computer), `chdktest` (the module's develop on the desktop) and the engine's own cross-checks. |
 | `stocks/` | the thirteen films, as plain text. |
 
 The engine was written for the EOS 5D Classic in
 [jiijii0/soup-engine](https://github.com/jiijii0/soup-engine), where
-Magic Lantern runs it. It is carried here unchanged; some of its comments
-still refer to the 5D build it was written alongside.
+Magic Lantern runs it. Here it differs only in speed: the per-pixel
+divides the camera's core has no instruction for are gone, and every
+stock develops to the same bytes as before (13 stocks, both sizes, four
+test frames). Some of its comments still refer to the 5D build it was
+written alongside.
 
 ## Building
 
@@ -23,6 +26,7 @@ still refer to the 5D build it was written alongside.
 make all        # the desktop tools
 make test       # the engine's self-tests
 make chdktest   # the module's develop, on the desktop, against camera JPEGs
+make carddev    # ./carddev: develop a card's photos on the computer
 make arm        # check the engine still builds freestanding for ARM946E-S
 ```
 

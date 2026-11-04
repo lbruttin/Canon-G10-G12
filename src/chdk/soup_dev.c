@@ -7,7 +7,26 @@
 #include "jpeg_dec.h"
 #include "jpeg_enc.h"
 
-size_t sd_last_peak;
+size_t   sd_last_peak;
+sd_times sd_last_times;
+
+/*
+ * The stage clock behind sd_last_times. Entering a stage charges the time
+ * since the last switch to the stage that was running, and returns it so
+ * the caller can switch back on the way out.
+ */
+enum { ST_SETUP, ST_READ, ST_DECODE, ST_LOOK, ST_ENCODE, ST_WRITE, ST_N };
+
+static int st_cur, st_t0, st_ms[ST_N];
+
+static int st_enter(int stage)
+{
+    int prev = st_cur, now = sd_ms();
+    st_ms[st_cur] += now - st_t0;
+    st_t0  = now;
+    st_cur = stage;
+    return prev;
+}
 
 /* ===================================================================== */
 /* Reading                                                                */
@@ -231,7 +250,12 @@ static int jpeg_read(void *ctx, uint32_t off, void *dst, uint32_t n)
     }
     if (!n) return 0;
     off = off - (uint32_t)s->hdrlen + (uint32_t)s->scan;
-    return read_at(s->h, (int)off, d, (int)n) == (int)n ? 0 : -1;
+    {
+        int prev = st_enter(ST_READ);
+        int ok   = read_at(s->h, (int)off, d, (int)n) == (int)n;
+        st_enter(prev);
+        return ok ? 0 : -1;
+    }
 }
 
 /* ===================================================================== */
@@ -254,10 +278,13 @@ typedef struct {
 
 static int out_flush(jpeg_out *o)
 {
-    int n = o->len;
+    int n = o->len, prev, ok;
     if (!n) return 0;
     o->len = 0;
-    if (sd_write(o->h, o->buf[o->cur], n) != n) { o->err = 1; return -1; }
+    prev = st_enter(ST_WRITE);
+    ok   = sd_write(o->h, o->buf[o->cur], n) == n;
+    st_enter(prev);
+    if (!ok) { o->err = 1; return -1; }
     o->cur ^= 1;
     return 0;
 }
@@ -323,9 +350,11 @@ typedef struct {
 static int look_emit(void *ctx, const uint8_t *row, int width)
 {
     look_ctx *L = (look_ctx *)ctx;
-    int pct;
+    int pct, prev = st_enter(ST_ENCODE), ok;
 
-    if (se_jpeg_write_rows(L->enc, row, 1) != SE_OK) { L->err = 1; return -1; }
+    ok = se_jpeg_write_rows(L->enc, row, 1) == SE_OK;
+    st_enter(prev);
+    if (!ok) { L->err = 1; return -1; }
     pct = ++L->rows * 100 / L->oh;
     if (pct != L->pct) sd_progress(L->pct = pct);
     return 0;
@@ -334,11 +363,13 @@ static int look_emit(void *ctx, const uint8_t *row, int width)
 static int look_rows(void *ctx, const uint8_t *rgb, int nrows, int width)
 {
     look_ctx *L = (look_ctx *)ctx;
+    int prev, ok;
 
     if (width != L->ow) { L->err = 1; return -1; }
-    if (se_look_rows(L->run, rgb, nrows, look_emit, L) != SE_OK) {
-        L->err = 1; return -1;
-    }
+    prev = st_enter(ST_LOOK);
+    ok   = se_look_rows(L->run, rgb, nrows, look_emit, L) == SE_OK;
+    st_enter(prev);
+    if (!ok) { L->err = 1; return -1; }
     return 0;
 }
 
@@ -365,6 +396,9 @@ se_err sd_develop(const char *in_path, const char *tmp_path,
     memset(&src, 0, sizeof src);
     memset(&out, 0, sizeof out);
     memset(&L, 0, sizeof L);
+    memset(st_ms, 0, sizeof st_ms);
+    st_cur = ST_SETUP;
+    st_t0  = sd_ms();
     src.h = out.h = -1;
 
     if ((size = sd_size(in_path)) <= 0) return SE_E_IO;
@@ -416,12 +450,15 @@ se_err sd_develop(const char *in_path, const char *tmp_path,
     rc = se_jpeg_begin(L.enc, ow, oh, opts->quality, strip, &ex, out_write, &out);
     if (rc != SE_OK) goto done;
 
+    st_enter(ST_DECODE);
     rc = se_jpeg_decode_stream_scaled(src.hdr, (size_t)src.hdrlen,
                                       (uint32_t)(src.hdrlen + size - src.scan),
                                       jpeg_read, &src, opts->scale, &arena,
                                       look_rows, &L, &ji);
     /* The look's delay line still holds the last `radius` rows. */
+    st_enter(ST_LOOK);
     if (rc == SE_OK && !L.err) rc = se_look_end(L.run, look_emit, &L);
+    st_enter(ST_ENCODE);
     if (rc == SE_OK && !L.err) rc = se_jpeg_end(L.enc);
     if (rc == SE_OK && out_flush(&out) != 0) rc = SE_E_IO;
     if (rc == SE_OK && (L.err || out.err)) rc = SE_E_IO;
@@ -439,6 +476,13 @@ done:
         }
         if (rc != SE_OK) sd_remove(tmp_path);
     }
+    st_enter(ST_SETUP);
+    sd_last_times.setup  = st_ms[ST_SETUP];
+    sd_last_times.read   = st_ms[ST_READ];
+    sd_last_times.decode = st_ms[ST_DECODE];
+    sd_last_times.look   = st_ms[ST_LOOK];
+    sd_last_times.encode = st_ms[ST_ENCODE];
+    sd_last_times.write  = st_ms[ST_WRITE];
     if (block) sd_free(block);
     if (hdr) sd_free(hdr);
     return rc;

@@ -115,9 +115,34 @@ starts.
 
 Developing runs in the background, so you can keep shooting. While a
 photo develops, **`FILM 37%`** shows in the top right corner. On a G10 a
-photo takes about 50 seconds at half size and about 3 minutes at full
-size. With REPLACE, use full size, or the film version keeps only a
+photo takes about 2 minutes at full size, and roughly a quarter of that
+at half size. With REPLACE, use full size, or the film version keeps only a
 quarter of the pixels.
+
+<br>
+
+### 💻 Developing on the computer instead
+
+A full-size photo takes the G10 about two minutes, and the camera has to
+stay on for it. The computer does the same develop in about a second,
+with the same code, so the result is byte-for-byte what the camera would
+have made. With the card in the Mac:
+
+```sh
+cd src
+make carddev               # once
+./carddev /Volumes/CANON   # the card's name in the Finder
+```
+
+It develops every photo that has no film version yet, in every folder,
+with the film, size and KEEP/REPLACE the camera is set to. Override them
+with `--stock VELVIA`, `--full` / `--half`, `--keep` / `--replace`. Photos
+already developed are skipped, so it's safe to run again. With REPLACE it
+asks before touching the originals. The card has to be unlocked (tab up)
+for the Mac to write to it.
+
+To leave all the developing to the computer, switch AUTO off on the
+camera (trash button in Soup Engine).
 
 <br>
 

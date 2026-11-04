@@ -141,6 +141,29 @@ static int fit_scale(int num, int den)
 }
 
 /*
+ * n / d without a divide, for 0 <= n < 65536 and 1 <= d < 256. `m` is
+ * recip24(d), worked out once per frame.
+ *
+ * The camera's ARM946E-S has no divide instruction: a `/` by anything not
+ * known at compile time is a call into libgcc of a few dozen cycles, and
+ * the halation stage made three of them on every pixel of every stock.
+ *
+ * This is exact over that range, not an approximation. m exceeds 2^24/d by
+ * less than one, so n*m/2^24 exceeds n/d by less than n/2^24 < 1/256 --
+ * and when n/d is not already a whole number it is at least 1/d > 1/256
+ * short of the next one. The floor cannot tip over.
+ */
+static uint32_t recip24(int d)
+{
+    return ((1u << 24) + (uint32_t)d - 1u) / (uint32_t)d;
+}
+
+static int div24(int n, uint32_t m)
+{
+    return (int)(((uint64_t)(uint32_t)n * m) >> 24);
+}
+
+/*
  * Fit a colour back inside 0..255 by pulling its CHROMA in, not by
  * clipping its channels.
  *
@@ -290,6 +313,8 @@ struct se_look_run {
     int     *colsum;          /* w running column sums over the ring     */
     int      pushed;          /* mask rows pushed, priming included      */
     uint8_t *scratch;         /* one row of mask, pre-blur               */
+    uint32_t span_m;          /* recip24(255 - threshold), for mask_row  */
+    uint32_t win_m;           /* recip24(nring): the window's divisor    */
 
     uint8_t *flat;            /* !on only: the one row we grade into     */
 };
@@ -353,6 +378,11 @@ se_err se_look_begin(se_look_run **out, const se_look *lk,
     if (lk->hal_amount > 0) {
         r->r      = lk->hal_radius;
         r->nring  = 2 * r->r + 1;
+        /* div24's range. se_look_from_stock caps the radius at 48, so
+         * only a hand-built look can get here. */
+        if (r->nring > 255) return SE_E_UNSUPPORTED;
+        r->win_m  = recip24(r->nring);
+        r->span_m = recip24(lk->hal_thresh < 255 ? 255 - lk->hal_thresh : 1);
         /*
          * The mask window spans 2r+1 rows, but the graded RGB does not.
          * A row is written at push index i and read back at push index
@@ -500,18 +530,17 @@ static void grade_row(const se_look *lk, uint8_t *row, int w)
  * a soft knee would be prettier, but this is what a threshold means and it
  * is one comparison.
  */
-static void mask_row(const se_look *lk, const uint8_t *row, int w,
+static void mask_row(const se_look_run *r, const uint8_t *row,
                      uint8_t *scratch, uint8_t *dst)
 {
-    int x, rad = lk->hal_radius, win = 2 * rad + 1;
+    const se_look *lk = &r->lk;
+    int  x, w = r->w, rad = lk->hal_radius;
     long sum = 0;
-    int  span = 255 - lk->hal_thresh;
-    if (span < 1) span = 1;
 
     for (x = 0; x < w; x++) {
         int y = luma8(row[x * 3], row[x * 3 + 1], row[x * 3 + 2]);
         int v = y - lk->hal_thresh;
-        scratch[x] = (uint8_t)(v <= 0 ? 0 : (v * 255) / span);
+        scratch[x] = (uint8_t)(v <= 0 ? 0 : div24(v * 255, r->span_m));
     }
 
     /* prime the window with the left edge clamped */
@@ -519,20 +548,21 @@ static void mask_row(const se_look *lk, const uint8_t *row, int w,
         sum += scratch[x < 0 ? 0 : (x >= w ? w - 1 : x)];
     for (x = 0; x < w; x++) {
         int add = x + rad + 1, sub = x - rad;
-        dst[x] = (uint8_t)(sum / win);
+        dst[x] = (uint8_t)div24((int)sum, r->win_m);   /* sum / (2r+1) */
         sum += scratch[add >= w ? w - 1 : add];
         sum -= scratch[sub < 0 ? 0 : sub];
     }
 }
 
-/* Add the glow to one row, given its vertical column sums. */
-static void add_glow(const se_look *lk, uint8_t *row, int w,
-                     const int *colsum, int nrows)
+/* Add the glow to one row, given its vertical column sums over the
+ * window's 2r+1 rows. */
+static void add_glow(const se_look_run *r, uint8_t *row)
 {
-    int x;
-    if (nrows < 1) nrows = 1;
+    const se_look *lk = &r->lk;
+    const int     *colsum = r->colsum;
+    int x, w = r->w;
     for (x = 0; x < w; x++) {
-        int g = colsum[x] / nrows;              /* 0..255 */
+        int g = div24(colsum[x], r->win_m);     /* 0..255 */
         int a, room;
         if (g <= 0) continue;
         a = (g * lk->hal_amount) / 100;
@@ -566,6 +596,11 @@ static void add_glow(const se_look *lk, uint8_t *row, int w,
 static void grain_row(const se_look *lk, uint8_t *row, int w, int y)
 {
     int x, cell = lk->grain_cell;
+    /* The grain cell under x is x / cell, kept as a running count rather
+     * than divided out per pixel: there is no divide instruction on the
+     * camera. gy is the same for the whole row. */
+    unsigned gx = 0, gy = (unsigned)(y / cell);
+    int      in_cell = 0;
     /* 0..100 -> about +-15 at full strength. This was 72/100, which put
      * +-28 on a midtone: at that amplitude a coarse stock stopped reading
      * as emulsion and started reading as sensor noise, which is the one
@@ -573,8 +608,7 @@ static void grain_row(const se_look *lk, uint8_t *row, int w, int y)
     int amp = (lk->grain * SE_GRAIN_AMP) / 100;
     if (amp <= 0) return;
     for (x = 0; x < w; x++) {
-        int n = (int)(grain_hash((unsigned)(x / cell), (unsigned)(y / cell),
-                                 0x5EEDu) & 0xFFFF);
+        int n = (int)(grain_hash(gx, gy, 0x5EEDu) & 0xFFFF);
         int d = ((n - 32768) * amp) >> 15;
         int c;
         for (c = 0; c < 3; c++) {
@@ -583,6 +617,7 @@ static void grain_row(const se_look *lk, uint8_t *row, int w, int y)
             int wgt = (v * (255 - v)) >> 6;     /* 0..254 */
             row[x * 3 + c] = (uint8_t)clamp8(v + ((d * wgt) >> 8));
         }
+        if (++in_cell == cell) { in_cell = 0; gx++; }
     }
 }
 
@@ -638,7 +673,7 @@ static se_err push_row(se_look_run *r, const uint8_t *src,
 
     memcpy(dly, src, (size_t)w * 3);
     grade_row(&r->lk, dly, w);
-    mask_row(&r->lk, dly, w, r->scratch, msk);
+    mask_row(r, dly, r->scratch, msk);
 
     for (x = 0; x < w; x++) r->colsum[x] += msk[x];
 
@@ -654,7 +689,7 @@ static se_err emit_delayed(se_look_run *r, int p,
     int      slot = (p - r->r) % r->ndelay;
     uint8_t *dly  = r->delay + (size_t)slot * r->w * 3;
 
-    add_glow(&r->lk, dly, r->w, r->colsum, r->nring);
+    add_glow(r, dly);
     return emit_one(r, dly, emit, ctx);
 }
 

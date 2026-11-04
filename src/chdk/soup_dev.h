@@ -35,6 +35,9 @@ void  sd_free(void *p);
 /* Called as rows leave the encoder, 0..100. Runs on the develop's task. */
 void  sd_progress(int percent);
 
+/* A millisecond clock, for sd_last_times. Only differences are used. */
+int   sd_ms(void);
+
 /* ---- stocks ------------------------------------------------------------ */
 #define SD_MAX_STOCKS 24
 
@@ -77,5 +80,22 @@ int sd_is_developed(const char *path);
 
 /* The arena high-water mark of the last develop, for the desktop test. */
 extern size_t sd_last_peak;
+
+/*
+ * Where the last develop's time went, in milliseconds. Each millisecond is
+ * counted once, against the stage that was actually running -- the look
+ * calls the encoder, which calls the card, and none of that is counted
+ * twice -- so the stages add up to the whole.
+ */
+typedef struct {
+    int setup;      /* the header, the allocation, opening the output      */
+    int read;       /* pulling the camera's JPEG off the card              */
+    int decode;     /* the JPEG decoder, entropy decoding to RGB rows      */
+    int look;       /* the film look, halation and grain                   */
+    int encode;     /* the JPEG encoder                                    */
+    int write;      /* putting the film version on the card                */
+} sd_times;
+
+extern sd_times sd_last_times;
 
 #endif /* SOUP_DEV_H */

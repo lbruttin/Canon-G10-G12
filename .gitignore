@@ -3,6 +3,7 @@
 *.d
 src/out/
 src/filmdev
+src/carddev
 
 # test photos stay local
 src/samples/

@@ -674,10 +674,16 @@ static se_err jd_run(const uint8_t *d, size_t len,
                     (size_t)(y * Cb->vs / s->vmax) * Cb->pw;
                 const uint8_t *rr = Cr->plane +
                     (size_t)(y * Cr->vs / s->vmax) * Cr->pw;
-                int x;
+                /*
+                 * The chroma sample under x is x * hs / hmax, carried as a
+                 * running quotient and remainder rather than divided out:
+                 * hmax is only known at run time, and on the camera's
+                 * ARM946E-S, which has no divide instruction, that was two
+                 * library calls per pixel. hs <= hmax, so each step moves
+                 * the quotient by at most one.
+                 */
+                int x, xb = 0, xr = 0, eb = 0, er = 0;
                 for (x = 0; x < s->ow; x++) {
-                    int xb = x * Cb->hs / s->hmax;
-                    int xr = x * Cr->hs / s->hmax;
                     int Yv  = yy[x] << 16;
                     int Cbv = bb[xb] - 128, Crv = rr[xr] - 128;
                     int r = (Yv + 91881 * Crv) >> 16;
@@ -686,6 +692,8 @@ static se_err jd_run(const uint8_t *d, size_t len,
                     orow[x * 3 + 0] = (uint8_t)(r < 0 ? 0 : r > 255 ? 255 : r);
                     orow[x * 3 + 1] = (uint8_t)(g < 0 ? 0 : g > 255 ? 255 : g);
                     orow[x * 3 + 2] = (uint8_t)(b < 0 ? 0 : b > 255 ? 255 : b);
+                    if ((eb += Cb->hs) >= s->hmax) { eb -= s->hmax; xb++; }
+                    if ((er += Cr->hs) >= s->hmax) { er -= s->hmax; xr++; }
                 }
             }
         }

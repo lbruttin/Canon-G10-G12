@@ -26,9 +26,16 @@ SOUP_OBJ    = $(SOUP_CHDK:%=$Osoupc_%.o) $(SOUP_ENGINE:%=$Osoupe_%.o)
 # multiplies, which Thumb-1 has no instruction for, and this is the same
 # ARM946E-S the 5D build was tuned on.
 #
+# -O2, and inlining back on. CHDK builds everything -Os -fno-inline, which
+# suits menus and costs a frame of pixels dearly: every small helper on the
+# per-pixel path stays a real call, and at -Os GCC divides by constants
+# through a libgcc call rather than a multiply -- four per pixel in the
+# grade alone, on a core with no divide instruction. These come after
+# CHDK's own flags, so they win.
+#
 # -nostdinc as CHDK's own rules do; src/chdk supplies the one header
 # CHDK lacks, stdint.h.
-SOUP_CFLAGS = -marm -nostdinc -std=gnu99 -I$(SOUP)/chdk -I$(SOUP)/engine
+SOUP_CFLAGS = -marm -O2 -finline -nostdinc -std=gnu99 -I$(SOUP)/chdk -I$(SOUP)/engine
 
 # The engine bakes its curves in float. CHDK exports only some of the
 # soft-float helpers that needs, so the module carries its own: exactly the

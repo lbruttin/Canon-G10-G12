@@ -91,6 +91,8 @@ int sd_rename(const char *from, const char *to)
     return sd_size(to) > 0 ? 0 : -1;
 }
 
+int sd_ms(void) { return (int)get_tick_count(); }
+
 static volatile int soup_pct;
 static void badge(int pct);
 
@@ -346,8 +348,11 @@ static int develop(const char *dir, const char *name)
     badge_clear();
 
     if (rc == SE_OK) {
+        const sd_times *t = &sd_last_times;
         se_log("%s -> %s, %s, %d s", in, out, st->name,
                (get_tick_count() - t0) / 1000);
+        se_log("  ms: read %d, decode %d, look %d, encode %d, write %d, other %d",
+               t->read, t->decode, t->look, t->encode, t->write, t->setup);
         sprintf(status, "%s done", name);
     } else {
         cam_meminfo m;
